@@ -12,6 +12,7 @@ private:
     int _pin3;
     int _pin4;
     int _steps = 720;
+    int _microsteps = 2;
 
     int _targetPosition = 0;
     int _currentPosition = 0;
@@ -32,7 +33,12 @@ private:
         {S, N}
     };
 
-    static void stepperTask(void *_param);
+    static StepperMotor *_instance;
+
+    hw_timer_t *_stepperTimer = NULL;
+    // static void stepperTask(void *_param);
+    static void IRAM_ATTR taskWrapper();
+    void stepperTask();
     void writeMagnet(int p1, int p2, int state);
 
 public:

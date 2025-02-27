@@ -21,8 +21,8 @@ void setup()
   // clockSerial.onRecieve(handleMessage);
   // clockSerial.begin();
 
-  m1.hourStepper->setTargetPosition(720);
-  // m1.minuteStepper->setTargetPosition(720);
+  // m1.hourStepper->setTargetPosition(720);
+  m1.minuteStepper->setTargetPosition(720);
 }
 
 void loop()

@@ -1,6 +1,9 @@
 #include "Arduino.h"
 #include "StepperMotor.h"
 
+// Define the static member
+StepperMotor* StepperMotor::_instance = nullptr;
+
 StepperMotor::StepperMotor(int pin1, int pin2, int pin3, int pin4)
 {
     _pin1 = pin1;
@@ -14,13 +17,47 @@ StepperMotor::StepperMotor(int pin1, int pin2, int pin3, int pin4)
     pinMode(_pin3, OUTPUT);
     pinMode(_pin4, OUTPUT);
 
-    xTaskCreate(
-        StepperMotor::stepperTask, // Correct function pointer
-        "StepperTask",
-        2048,
-        this, // Pass the current object as the parameter
-        1,
-        NULL);
+    // xTaskCreate(
+    //     StepperMotor::stepperTask, // Correct function pointer
+    //     "StepperTask",
+    //     2048,
+    //     this, // Pass the current object as the parameter
+    //     1,
+    //     NULL);
+
+    _instance = this;
+    _stepperTimer = timerBegin(0, 80, true);
+    timerAttachInterrupt(_stepperTimer, &taskWrapper, true);
+    timerAlarmWrite(_stepperTimer, 1000, true);
+    timerAlarmEnable(_stepperTimer);
+}
+
+void IRAM_ATTR StepperMotor::taskWrapper() {
+    _instance->stepperTask();
+}
+
+void StepperMotor::stepperTask()
+{
+    int _distance = (_targetPosition * _microsteps) - _currentPosition;
+    if (_distance > 0)
+    {
+        if (_speed < _maxspeed)
+        {
+            _speed += _acceleration;
+        }
+
+        _phase = _currentPosition % 8;
+        _currentPosition += 1;
+
+        writeMagnet(_pin1, _pin2, _phases[_phase][0]);
+        writeMagnet(_pin3, _pin4, _phases[_phase][1]);
+
+        // Add a delay to control the speed
+        // Serial.println(_speed);
+        // _speed = 1;
+        // delayMicroseconds(1000000 / _speed);
+        // delayMicroseconds(1000);
+    }
 }
 
 void StepperMotor::writeMagnet(int p1, int p2, int state)
@@ -44,31 +81,42 @@ void StepperMotor::writeMagnet(int p1, int p2, int state)
     }
 }
 
-void StepperMotor::stepperTask(void *_param)
-{
-    StepperMotor *motor = static_cast<StepperMotor *>(_param); // Cast the parameter to StepperMotor*
+// void StepperMotor::stepperTask(void *_param)
+// {
+//     StepperMotor *motor = static_cast<StepperMotor *>(_param); // Cast the parameter to StepperMotor*
 
-    while (true)
-    {
+//     while (true)
+//     {
 
-        int _distance = motor->_targetPosition - motor->_currentPosition;
-        if (_distance > 0)
-        {
-            if (motor->_speed < motor->_maxspeed) {
-                motor->_speed += motor->_acceleration;
-            }
+//         int _distance = (motor->_targetPosition * 2) - motor->_currentPosition;
+//         if (_distance > 0)
+//         {
+//             if (motor->_speed < motor->_maxspeed)
+//             {
+//                 motor->_speed += motor->_acceleration;
+//             }
 
-            motor->_phase = motor->_currentPosition % 8;
-            motor->_currentPosition += 1;
+//             motor->_phase = motor->_currentPosition % 8;
+//             motor->_currentPosition += 1;
 
-            motor->writeMagnet(motor->_pin1, motor->_pin2, motor->_phases[motor->_phase][0]);
-            motor->writeMagnet(motor->_pin3, motor->_pin4, motor->_phases[motor->_phase][1]);
+//             motor->writeMagnet(motor->_pin1, motor->_pin2, motor->_phases[motor->_phase][0]);
+//             motor->writeMagnet(motor->_pin3, motor->_pin4, motor->_phases[motor->_phase][1]);
 
-            // Add a delay to control the speed
-            delayMicroseconds(1000000 / motor->_speed);
-        }
-    }
-}
+//             // Add a delay to control the speed
+//             // Serial.println(motor->_speed);
+//             motor->_speed = 1;
+//             delayMicroseconds(1000000 / motor->_speed);
+//             // delayMicroseconds(1000);
+//         }
+//         else
+//         {
+//             delay(100);
+//         }
+
+//         // delay(100);
+//         // Serial.println("StepperTask");
+//     }
+// }
 
 void StepperMotor::setTargetPosition(int position)
 {
