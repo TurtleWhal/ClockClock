@@ -21,15 +21,18 @@ void setup()
   // clockSerial.onRecieve(handleMessage);
   // clockSerial.begin();
 
-  // m1.hourStepper->setTargetPosition(720);
+  m1.hourStepper->setTargetPosition(720);
   m1.minuteStepper->setTargetPosition(720);
 }
 
 void loop()
 {
   // put your main code here, to run repeatedly:
-  Serial.println("running");
-  delay(1000);
+  // Serial.println("running");
+  // delay(1000);
+
+  m1.minuteStepper->handle();
+  m1.hourStepper->handle();
 }
 
 // void handleMessage(Data data)
@@ -38,7 +41,7 @@ void loop()
 
 //   if (address > 0)
 //   {
-    
+
 //     // clockSerial.send(data);
 //   }
 //   else

@@ -1,9 +1,6 @@
 #include "Arduino.h"
 #include "StepperMotor.h"
 
-// Define the static member
-StepperMotor* StepperMotor::_instance = nullptr;
-
 StepperMotor::StepperMotor(int pin1, int pin2, int pin3, int pin4)
 {
     _pin1 = pin1;
@@ -16,47 +13,69 @@ StepperMotor::StepperMotor(int pin1, int pin2, int pin3, int pin4)
     pinMode(_pin2, OUTPUT);
     pinMode(_pin3, OUTPUT);
     pinMode(_pin4, OUTPUT);
-
-    // xTaskCreate(
-    //     StepperMotor::stepperTask, // Correct function pointer
-    //     "StepperTask",
-    //     2048,
-    //     this, // Pass the current object as the parameter
-    //     1,
-    //     NULL);
-
-    _instance = this;
-    _stepperTimer = timerBegin(0, 80, true);
-    timerAttachInterrupt(_stepperTimer, &taskWrapper, true);
-    timerAlarmWrite(_stepperTimer, 1000, true);
-    timerAlarmEnable(_stepperTimer);
 }
 
-void IRAM_ATTR StepperMotor::taskWrapper() {
-    _instance->stepperTask();
-}
-
-void StepperMotor::stepperTask()
+void StepperMotor::handle()
 {
-    int _distance = (_targetPosition * _microsteps) - _currentPosition;
-    if (_distance > 0)
+    unsigned long currentTime = micros();
+
+    if (_running)
     {
-        if (_speed < _maxspeed)
+        if (targetTime < currentTime)
         {
-            _speed += _acceleration;
+            unsigned long elapsedTime = currentTime - lastTime;
+
+            int _distance = (_targetPosition * _microsteps) - _currentPosition;
+
+            // Calculate the remaining deceleration distance based on current speed
+            int _decelerationDistance = (_speed * _speed) / (2 * _acceleration);
+
+            if (_distance > 0)
+            {
+                if (_distance <= _decelerationDistance)
+                {
+                    // Start decelerating if we're within the deceleration range
+                    if (_speed > 0)
+                    {
+                        // Reduce the speed smoothly based on elapsed time
+                        _speed -= _acceleration * elapsedTime / 1000000;
+                        if (_speed < 0)
+                            _speed = 0; // Prevent negative speed
+                    }
+                }
+                else
+                {
+                    // Continue accelerating if there's enough distance left
+                    if (_speed < _maxspeed)
+                    {
+                        _speed += _acceleration * elapsedTime / 1000000;
+                        if (_speed > _maxspeed)
+                            _speed = _maxspeed; // Cap at max speed
+                    }
+                }
+
+                // Serial.println(_speed);
+
+                // Update the motor phase and position
+                _phase = _currentPosition % 8;
+                _currentPosition += 1;
+
+                writeMagnet(_pin1, _pin2, _phases[_phase][0]);
+                writeMagnet(_pin3, _pin4, _phases[_phase][1]);
+
+                // Calculate the next step's target time based on the current speed
+                if (_speed > 0)
+                    targetTime = currentTime + (1000000 / _speed); // Use 1000000 to work in seconds
+            }
+            else
+            {
+                // Stop the motor when the target position is reached
+                _running = false;
+                _speed = 0;
+            }
+
+            lastTime = currentTime;
         }
-
-        _phase = _currentPosition % 8;
-        _currentPosition += 1;
-
-        writeMagnet(_pin1, _pin2, _phases[_phase][0]);
-        writeMagnet(_pin3, _pin4, _phases[_phase][1]);
-
-        // Add a delay to control the speed
-        // Serial.println(_speed);
-        // _speed = 1;
-        // delayMicroseconds(1000000 / _speed);
-        // delayMicroseconds(1000);
     }
 }
 
@@ -81,46 +100,10 @@ void StepperMotor::writeMagnet(int p1, int p2, int state)
     }
 }
 
-// void StepperMotor::stepperTask(void *_param)
-// {
-//     StepperMotor *motor = static_cast<StepperMotor *>(_param); // Cast the parameter to StepperMotor*
-
-//     while (true)
-//     {
-
-//         int _distance = (motor->_targetPosition * 2) - motor->_currentPosition;
-//         if (_distance > 0)
-//         {
-//             if (motor->_speed < motor->_maxspeed)
-//             {
-//                 motor->_speed += motor->_acceleration;
-//             }
-
-//             motor->_phase = motor->_currentPosition % 8;
-//             motor->_currentPosition += 1;
-
-//             motor->writeMagnet(motor->_pin1, motor->_pin2, motor->_phases[motor->_phase][0]);
-//             motor->writeMagnet(motor->_pin3, motor->_pin4, motor->_phases[motor->_phase][1]);
-
-//             // Add a delay to control the speed
-//             // Serial.println(motor->_speed);
-//             motor->_speed = 1;
-//             delayMicroseconds(1000000 / motor->_speed);
-//             // delayMicroseconds(1000);
-//         }
-//         else
-//         {
-//             delay(100);
-//         }
-
-//         // delay(100);
-//         // Serial.println("StepperTask");
-//     }
-// }
-
 void StepperMotor::setTargetPosition(int position)
 {
     _targetPosition = position;
+    _running = true;
 }
 
 int StepperMotor::getCurrentPosition()
