@@ -13,6 +13,8 @@ StepperMotor::StepperMotor(int pin1, int pin2, int pin3, int pin4)
     pinMode(_pin2, OUTPUT);
     pinMode(_pin3, OUTPUT);
     pinMode(_pin4, OUTPUT);
+
+    analogWriteFrequency(20000);
 }
 
 void StepperMotor::handle()
