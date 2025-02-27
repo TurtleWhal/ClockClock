@@ -25,7 +25,7 @@ void StepperMotor::handle()
         {
             unsigned long elapsedTime = currentTime - lastTime;
 
-            int _distance = (_targetPosition * _microsteps) - _currentPosition;
+            int _distance = _targetPosition - _currentPosition;
 
             // Calculate the remaining deceleration distance based on current speed
             int _decelerationDistance = (_speed * _speed) / (2 * _acceleration);
@@ -54,18 +54,25 @@ void StepperMotor::handle()
                     }
                 }
 
-                // Serial.println(_speed);
 
-                // Update the motor phase and position
-                _phase = _currentPosition % 8;
-                _currentPosition += 1;
 
-                writeMagnet(_pin1, _pin2, _phases[_phase][0]);
-                writeMagnet(_pin3, _pin4, _phases[_phase][1]);
+                // Half stepping
+                // // Update the motor phase and position
+                // _phase = (int)(_currentPosition * _microsteps) % 8;
+                // _currentPosition += 1 / _microsteps;
+
+                // writeMagnet(_pin1, _pin2, _phases[_phase][0]);
+                // writeMagnet(_pin3, _pin4, _phases[_phase][1]);
+                
+                // analog microstepping
+                _currentPosition += 1 / _microsteps;
+                writeMagnet(_pin1, _pin2, sin(_currentPosition * PI / 180) * 255);
+                writeMagnet(_pin3, _pin4, sin(_currentPosition * PI / 180 + PI / 2) * 255);
+
 
                 // Calculate the next step's target time based on the current speed
                 if (_speed > 0)
-                    targetTime = currentTime + (1000000 / _speed); // Use 1000000 to work in seconds
+                    targetTime = currentTime + (1000000 / (_speed * _microsteps)); // Use 1000000 to work in seconds
             }
             else
             {
@@ -79,24 +86,40 @@ void StepperMotor::handle()
     }
 }
 
-void StepperMotor::writeMagnet(int p1, int p2, int state)
+void StepperMotor::writeMagnet(int p1, int p2, double state)
 {
-    switch (state)
+    // switch (state)
+    // {
+    // case N:
+    //     digitalWrite(p1, HIGH);
+    //     digitalWrite(p2, LOW);
+    //     break;
+
+    // case S:
+    //     digitalWrite(p1, LOW);
+    //     digitalWrite(p2, HIGH);
+    //     break;
+
+    // case OFF:
+    //     digitalWrite(p1, LOW);
+    //     digitalWrite(p2, LOW);
+    //     break;
+    // }
+
+    if (state > 0)
     {
-    case N:
-        digitalWrite(p1, HIGH);
+        analogWrite(p1, state);
         digitalWrite(p2, LOW);
-        break;
-
-    case S:
+    }
+    else if (state < 0)
+    {
         digitalWrite(p1, LOW);
-        digitalWrite(p2, HIGH);
-        break;
-
-    case OFF:
+        analogWrite(p2, -state);
+    }
+    else
+    {
         digitalWrite(p1, LOW);
         digitalWrite(p2, LOW);
-        break;
     }
 }
 

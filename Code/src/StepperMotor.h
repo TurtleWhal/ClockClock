@@ -2,7 +2,7 @@
 
 #define OFF 0
 #define N 1
-#define S 2
+#define S -1
 
 class StepperMotor
 {
@@ -15,7 +15,7 @@ private:
     int _microsteps = 2;
 
     int _targetPosition = 0;
-    int _currentPosition = 0;
+    double _currentPosition = 0;
     int _phase = 0;
 
     bool _running = false;
@@ -38,7 +38,7 @@ private:
         {S, N}
     };
 
-    void writeMagnet(int p1, int p2, int state);
+    void writeMagnet(int p1, int p2, double state);
 
 public:
     StepperMotor(int pin1, int pin2, int pin3, int pin4);
