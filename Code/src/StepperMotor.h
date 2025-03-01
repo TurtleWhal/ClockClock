@@ -12,7 +12,7 @@ private:
     int _pin3;
     int _pin4;
     int _steps = 720;
-    int _microsteps = 2;
+    int _microsteps = 16;
 
     int _targetPosition = 0;
     double _currentPosition = 0;
@@ -20,8 +20,8 @@ private:
 
     bool _running = false;
 
-    double _acceleration = 60.0; // steps/second/ loop?
-    double _maxspeed = 720.0; // steps/second
+    double _acceleration = 1.0; // steps/second/ loop?
+    double _maxspeed = 30.0; // steps/second
     double _speed = 0.0; // steps/second
 
     unsigned long lastTime = 0; // target time for next step in microseconds

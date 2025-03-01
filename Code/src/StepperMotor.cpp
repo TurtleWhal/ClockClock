@@ -56,8 +56,6 @@ void StepperMotor::handle()
                     }
                 }
 
-
-
                 // Half stepping
                 // // Update the motor phase and position
                 // _phase = (int)(_currentPosition * _microsteps) % 8;
@@ -65,12 +63,23 @@ void StepperMotor::handle()
 
                 // writeMagnet(_pin1, _pin2, _phases[_phase][0]);
                 // writeMagnet(_pin3, _pin4, _phases[_phase][1]);
-                
-                // analog microstepping
-                _currentPosition += 1 / _microsteps;
-                writeMagnet(_pin1, _pin2, sin(_currentPosition * PI / 180) * 255);
-                writeMagnet(_pin3, _pin4, sin(_currentPosition * PI / 180 + PI / 2) * 255);
 
+                // analog microstepping
+                _currentPosition += 1.0 / _microsteps;
+                // writeMagnet(_pin1, _pin2, sin((_currentPosition / 2) * PI / 180));
+                // writeMagnet(_pin3, _pin4, sin((_currentPosition / 2) * (PI / 180) + PI / 2));
+
+                double sineA = sin(remainder(_currentPosition, 1) * (2 * PI));
+                uint8_t raiseA = sineA <= 0 ? 1 : 0;
+                analogWrite(_pin1, (sineA + raiseA) * 255);
+                digitalWrite(_pin2, raiseA);
+
+                double sineB = sin((remainder(_currentPosition, 1) * (2 * PI)) + (PI / 2));
+                uint8_t raiseB = sineB <= 0 ? 1 : 0;
+                analogWrite(_pin3, (sineB + raiseB) * 255);
+                digitalWrite(_pin4, raiseB);
+
+                // Serial.println(sine);
 
                 // Calculate the next step's target time based on the current speed
                 if (_speed > 0)
@@ -110,13 +119,13 @@ void StepperMotor::writeMagnet(int p1, int p2, double state)
 
     if (state > 0)
     {
-        analogWrite(p1, state);
+        analogWrite(p1, state * 255);
         digitalWrite(p2, LOW);
     }
     else if (state < 0)
     {
         digitalWrite(p1, LOW);
-        analogWrite(p2, -state);
+        analogWrite(p2, state * 255);
     }
     else
     {

@@ -21,8 +21,8 @@ void setup()
   // clockSerial.onRecieve(handleMessage);
   // clockSerial.begin();
 
-  m1.hourStepper->setTargetPosition(720);
-  m1.minuteStepper->setTargetPosition(720);
+  // m1.hourStepper->setTargetPosition(720*10);
+  m1.minuteStepper->setTargetPosition(180);
 }
 
 void loop()
@@ -33,6 +33,25 @@ void loop()
 
   m1.minuteStepper->handle();
   m1.hourStepper->handle();
+
+  // for (double i = 0; i < PI * 2; i += PI / 16)
+  // {
+  //   double sineA = sin(i);
+  //   uint8_t raiseA = sineA <= 0 ? 1 : 0;
+  //   analogWrite(M1_B3, (sineA + raiseA) * 255);
+  //   digitalWrite(M1_B4, raiseA);
+  //   // analogWrite(M1_B1, (sineA + raiseA) * 255);
+  //   // digitalWrite(M1_B2, raiseA);
+
+  //   double sineB = sin(i + PI / 2);
+  //   uint8_t raiseB = sineB <= 0 ? 1 : 0;
+  //   analogWrite(M1_B1, (sineB + raiseB) * 255);
+  //   digitalWrite(M1_B2, raiseB);
+  //   // analogWrite(M1_B1, (sineB + raiseB) * 255);
+  //   // digitalWrite(M1_B2, raiseB);
+
+  //   delayMicroseconds(100);
+  // }
 }
 
 // void handleMessage(Data data)
