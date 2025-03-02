@@ -15,13 +15,13 @@ private:
     int _microsteps = 16;
 
     int _targetPosition = 0;
-    double _currentPosition = 0;
+    double _currentPosition = 0.0;
     int _phase = 0;
 
     bool _running = false;
 
-    double _acceleration = 100.0; // steps/second/ loop?
-    double _maxspeed = 300000.0; // steps/second
+    double _acceleration = 120.0; // steps/second/ loop?
+    double _maxspeed = 360.0; // steps/second
     double _speed = 0.0; // steps/second
 
     unsigned long lastTime = 0; // target time for next step in microseconds

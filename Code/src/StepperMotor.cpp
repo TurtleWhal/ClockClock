@@ -14,11 +14,12 @@ StepperMotor::StepperMotor(int pin1, int pin2, int pin3, int pin4)
     pinMode(_pin3, OUTPUT);
     pinMode(_pin4, OUTPUT);
 
-    analogWriteFrequency(20000);
+    analogWriteFrequency(80000);
 }
 
 void StepperMotor::handle()
 {
+
     unsigned long currentTime = micros();
 
     if (_running)
@@ -34,7 +35,7 @@ void StepperMotor::handle()
 
             // Determine the direction of movement (1 = forward, -1 = backward)
             int direction = (_distance > 0) ? 1 : -1;
-            
+
             // Adjust logic for deceleration and speed based on distance and direction
             if (abs(_distance) <= _decelerationDistance)
             {
@@ -58,7 +59,6 @@ void StepperMotor::handle()
                 }
             }
 
-            // Half stepping
             // Update motor position based on direction
             _currentPosition += direction * (1.0 / _microsteps);
 
@@ -78,7 +78,7 @@ void StepperMotor::handle()
                 targetTime = currentTime + (1000000.0 / (_speed * _microsteps));
 
             // Serial.printf("Timer: %ld, _speed: %f, _targetPosition: %d, _currentPosition: %f\n", targetTime - currentTime, _speed, _targetPosition, _currentPosition);
-            
+
             // Stop the motor when the target position is reached
             if ((direction > 0 && _currentPosition >= _targetPosition) ||
                 (direction < 0 && _currentPosition <= _targetPosition))
@@ -121,7 +121,6 @@ void StepperMotor::setTargetPosition(int position)
     _targetPosition = position;
     _running = true;
 }
-
 
 int StepperMotor::getCurrentPosition()
 {

@@ -4,10 +4,14 @@
 
 // ClockSerial clockSerial = ClockSerial();
 
-ClockModule *m1 = new ClockModule(0);
-ClockModule *m2 = new ClockModule(1);
-ClockModule *m3 = new ClockModule(2);
-ClockModule *m4 = new ClockModule(3);
+// ClockModule *m1 = new ClockModule(0);
+// ClockModule *m2 = new ClockModule(1);
+// ClockModule *m3 = new ClockModule(2);
+// ClockModule *m4 = new ClockModule(3);
+ClockModule *m1;
+ClockModule *m2;
+ClockModule *m3;
+ClockModule *m4;
 
 // void handleMessage(Data data);
 
@@ -17,6 +21,22 @@ void setup()
   Serial.begin(115200);
   Serial.println("Helooo");
 
+  if (psramFound())
+  {
+    Serial.println("PSRAM found and initialized.");
+    size_t freePsram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    Serial.printf("Free PSRAM: %d bytes\n", freePsram);
+  }
+  else
+  {
+    Serial.println("PSRAM not found!");
+  }
+
+  m1 = new ClockModule(0);
+  m2 = new ClockModule(1);
+  m3 = new ClockModule(2);
+  m4 = new ClockModule(3);
+
   // put your setup code here, to run once:
   // clockSerial.onRecieve(handleMessage);
   // clockSerial.begin();
@@ -24,14 +44,14 @@ void setup()
   m1->hourStepper->setTargetPosition(720);
   m1->minuteStepper->setTargetPosition(720);
 
-  m2->hourStepper->setTargetPosition(-720);
-  m2->minuteStepper->setTargetPosition(-720);
+  m2->hourStepper->setTargetPosition(720);
+  m2->minuteStepper->setTargetPosition(720);
 
   m3->hourStepper->setTargetPosition(720);
   m3->minuteStepper->setTargetPosition(720);
 
-  m4->hourStepper->setTargetPosition(-720);
-  m4->minuteStepper->setTargetPosition(-720);
+  m4->hourStepper->setTargetPosition(720);
+  m4->minuteStepper->setTargetPosition(720);
 }
 
 void loop()
@@ -41,22 +61,23 @@ void loop()
   // delay(1000);
 
   static bool flag = false;
-  if (millis() > 10000 && !flag) {
-    m1->hourStepper->setTargetPosition(720*2);
-    m1->minuteStepper->setTargetPosition(720*2);
+  if (millis() > 10000 && !flag)
+  {
+    m1->hourStepper->setTargetPosition(180);
+    // m1->minuteStepper->setTargetPosition(0);
     flag = true;
   }
 
   m1->minuteStepper->handle();
-  // m1->hourStepper->handle();
+  m1->hourStepper->handle();
 
   m2->minuteStepper->handle();
-  // m2->hourStepper->handle();
+  m2->hourStepper->handle();
 
-  m3->minuteStepper->handle();
+  // m3->minuteStepper->handle();
   // m3->hourStepper->handle();
 
-  m4->minuteStepper->handle();
+  // m4->minuteStepper->handle();
   // m4->hourStepper->handle();
 
   // for (double i = 0; i < PI * 2; i += PI / 16)
