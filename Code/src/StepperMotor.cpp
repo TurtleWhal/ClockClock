@@ -14,7 +14,7 @@ StepperMotor::StepperMotor(int pin1, int pin2, int pin3, int pin4)
     pinMode(_pin3, OUTPUT);
     pinMode(_pin4, OUTPUT);
 
-    analogWriteFrequency(80000);
+    analogWriteFrequency(20000);
 }
 
 void StepperMotor::handle()
@@ -32,64 +32,57 @@ void StepperMotor::handle()
             // Calculate the remaining deceleration distance based on current speed
             double _decelerationDistance = (_speed * _speed) / (2 * _acceleration);
 
-            if (_distance > 0)
+            // Determine the direction of movement (1 = forward, -1 = backward)
+            int direction = (_distance > 0) ? 1 : -1;
+            
+            // Adjust logic for deceleration and speed based on distance and direction
+            if (abs(_distance) <= _decelerationDistance)
             {
-                if (_distance <= _decelerationDistance)
-                {
-                    // Start decelerating if we're within the deceleration range
-                    if (_speed > 0)
-                    {
-                        // Reduce the speed smoothly based on elapsed time
-                        _speed -= _acceleration * elapsedTime / 1000000;
-                        if (_speed < 0)
-                            _speed = 0; // Prevent negative speed
-                    }
-                }
-                else
-                {
-                    // Continue accelerating if there's enough distance left
-                    if (_speed < _maxspeed)
-                    {
-                        _speed += _acceleration * elapsedTime / 1000000;
-                        if (_speed > _maxspeed)
-                            _speed = _maxspeed; // Cap at max speed
-                    }
-                }
-
-                // Half stepping
-                // // Update the motor phase and position
-                // _phase = (int)(_currentPosition * _microsteps) % 8;
-                // _currentPosition += 1 / _microsteps;
-
-                // writeMagnet(_pin1, _pin2, _phases[_phase][0]);
-                // writeMagnet(_pin3, _pin4, _phases[_phase][1]);
-
-                // analog microstepping
-                _currentPosition += 1.0 / _microsteps;
-                // writeMagnet(_pin1, _pin2, sin((_currentPosition / 2) * PI / 180));
-                // writeMagnet(_pin3, _pin4, sin((_currentPosition / 2) * (PI / 180) + PI / 2));
-
-                double sineA = sin(remainder(_currentPosition / 4, 1) * (2 * PI));
-                uint8_t raiseA = sineA <= 0 ? 1 : 0;
-                analogWrite(_pin1, (sineA + raiseA) * 255);
-                digitalWrite(_pin2, raiseA);
-
-                double sineB = sin((remainder(_currentPosition / 4, 1) * (2 * PI)) + (PI / 2));
-                uint8_t raiseB = sineB <= 0 ? 1 : 0;
-                analogWrite(_pin3, (sineB + raiseB) * 255);
-                digitalWrite(_pin4, raiseB);
-
-                // Serial.println(_currentPosition);
-
-                // Calculate the next step's target time based on the current speed
+                // Start decelerating if we're within the deceleration range
                 if (_speed > 0)
-                    targetTime = currentTime + (1000000.0 / (_speed * _microsteps)); // Use 1000000 to work in seconds
-
-                Serial.printf("Timer: %ld, _speed: %f, _targetPosition: %d, _currentPosition: %f\n", targetTime - currentTime, _speed, _targetPosition, _currentPosition);
+                {
+                    // Reduce the speed smoothly based on elapsed time
+                    _speed -= _acceleration * elapsedTime / 1000000;
+                    if (_speed < 0)
+                        _speed = 0; // Prevent negative speed
+                }
             }
             else
             {
-                // Stop the motor when the target position is reached
+                // Continue accelerating if there's enough distance left
+                if (_speed < _maxspeed)
+                {
+                    _speed += _acceleration * elapsedTime / 1000000;
+                    if (_speed > _maxspeed)
+                        _speed = _maxspeed; // Cap at max speed
+                }
+            }
+
+            // Half stepping
+            // Update motor position based on direction
+            _currentPosition += direction * (1.0 / _microsteps);
+
+            // Analog microstepping logic with direction control
+            double sineA = sin(remainder(_currentPosition / 4, 1) * (2 * PI));
+            uint8_t raiseA = sineA <= 0 ? 1 : 0;
+            analogWrite(_pin1, (sineA + raiseA) * 255);
+            digitalWrite(_pin2, raiseA);
+
+            double sineB = sin((remainder(_currentPosition / 4, 1) * (2 * PI)) + (PI / 2));
+            uint8_t raiseB = sineB <= 0 ? 1 : 0;
+            analogWrite(_pin3, (sineB + raiseB) * 255);
+            digitalWrite(_pin4, raiseB);
+
+            // Calculate the next step's target time based on the current speed and direction
+            if (_speed > 0)
+                targetTime = currentTime + (1000000.0 / (_speed * _microsteps));
+
+            // Serial.printf("Timer: %ld, _speed: %f, _targetPosition: %d, _currentPosition: %f\n", targetTime - currentTime, _speed, _targetPosition, _currentPosition);
+            
+            // Stop the motor when the target position is reached
+            if ((direction > 0 && _currentPosition >= _targetPosition) ||
+                (direction < 0 && _currentPosition <= _targetPosition))
+            {
                 _running = false;
                 _speed = 0;
             }
@@ -101,24 +94,6 @@ void StepperMotor::handle()
 
 void StepperMotor::writeMagnet(int p1, int p2, double state)
 {
-    // switch (state)
-    // {
-    // case N:
-    //     digitalWrite(p1, HIGH);
-    //     digitalWrite(p2, LOW);
-    //     break;
-
-    // case S:
-    //     digitalWrite(p1, LOW);
-    //     digitalWrite(p2, HIGH);
-    //     break;
-
-    // case OFF:
-    //     digitalWrite(p1, LOW);
-    //     digitalWrite(p2, LOW);
-    //     break;
-    // }
-
     if (state > 0)
     {
         analogWrite(p1, state * 255);
@@ -138,9 +113,15 @@ void StepperMotor::writeMagnet(int p1, int p2, double state)
 
 void StepperMotor::setTargetPosition(int position)
 {
+    _running = false;
+    _speed = 0;
+    // lastTime = micros();
+    // lastTime = 0;
+    // targetTime = lastTime;
     _targetPosition = position;
     _running = true;
 }
+
 
 int StepperMotor::getCurrentPosition()
 {
@@ -154,37 +135,10 @@ int StepperMotor::getTargetPosition()
 
 void StepperMotor::setSpeed(int speed)
 {
-    // do something with speed
     _maxspeed = speed;
 }
 
 void StepperMotor::setAcceleration(int acceleration)
 {
-    // do something with acceleration
     _acceleration = acceleration;
 }
-
-// void StepperMotor::microStep()
-// {
-//     static int speed = 0;
-//     for (double i = 0; i < PI * 2; i += PI / 16)
-//     {
-//         double sineA = sin(i);
-//         uint8_t raiseA = sineA <= 0 ? 1 : 0;
-//         analogWrite(_pin1, (sineA + raiseA) * 255);
-//         digitalWrite(_pin2, raiseA);
-//         analogWrite(_pin4, (sineA + raiseA) * 255);
-//         digitalWrite(_pin3, raiseA);
-
-//         // double sineB = sin(i + (PI / 2));
-//         // uint8_t raiseB = sineB <= 0 ? 1 : 0;
-//         // analogWrite(14, (sineB + raiseB) * 255);
-//         // digitalWrite(12, raiseB);
-//         // analogWrite(16, (sineB + raiseB) * 255);
-//         // digitalWrite(5, raiseB);
-
-//         // delayMicroseconds((sin(speed) + 1) * 10000);
-//         delayMicroseconds(16000);
-//     }
-//     // speed += PI / 8;
-// }

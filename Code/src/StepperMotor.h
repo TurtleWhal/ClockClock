@@ -20,8 +20,8 @@ private:
 
     bool _running = false;
 
-    double _acceleration = 10.0; // steps/second/ loop?
-    double _maxspeed = 300.0; // steps/second
+    double _acceleration = 100.0; // steps/second/ loop?
+    double _maxspeed = 300000.0; // steps/second
     double _speed = 0.0; // steps/second
 
     unsigned long lastTime = 0; // target time for next step in microseconds
