@@ -14,7 +14,7 @@ StepperMotor::StepperMotor(int pin1, int pin2, int pin3, int pin4)
     pinMode(_pin3, OUTPUT);
     pinMode(_pin4, OUTPUT);
 
-    analogWriteFrequency(20000);
+    analogWriteFrequency(80000);
 }
 
 void StepperMotor::handle()
@@ -27,10 +27,10 @@ void StepperMotor::handle()
         {
             unsigned long elapsedTime = currentTime - lastTime;
 
-            int _distance = _targetPosition - _currentPosition;
+            double _distance = _targetPosition - _currentPosition;
 
             // Calculate the remaining deceleration distance based on current speed
-            int _decelerationDistance = (_speed * _speed) / (2 * _acceleration);
+            double _decelerationDistance = (_speed * _speed) / (2 * _acceleration);
 
             if (_distance > 0)
             {
@@ -69,21 +69,23 @@ void StepperMotor::handle()
                 // writeMagnet(_pin1, _pin2, sin((_currentPosition / 2) * PI / 180));
                 // writeMagnet(_pin3, _pin4, sin((_currentPosition / 2) * (PI / 180) + PI / 2));
 
-                double sineA = sin(remainder(_currentPosition, 1) * (2 * PI));
+                double sineA = sin(remainder(_currentPosition / 4, 1) * (2 * PI));
                 uint8_t raiseA = sineA <= 0 ? 1 : 0;
                 analogWrite(_pin1, (sineA + raiseA) * 255);
                 digitalWrite(_pin2, raiseA);
 
-                double sineB = sin((remainder(_currentPosition, 1) * (2 * PI)) + (PI / 2));
+                double sineB = sin((remainder(_currentPosition / 4, 1) * (2 * PI)) + (PI / 2));
                 uint8_t raiseB = sineB <= 0 ? 1 : 0;
                 analogWrite(_pin3, (sineB + raiseB) * 255);
                 digitalWrite(_pin4, raiseB);
 
-                // Serial.println(sine);
+                // Serial.println(_currentPosition);
 
                 // Calculate the next step's target time based on the current speed
                 if (_speed > 0)
-                    targetTime = currentTime + (1000000 / (_speed * _microsteps)); // Use 1000000 to work in seconds
+                    targetTime = currentTime + (1000000.0 / (_speed * _microsteps)); // Use 1000000 to work in seconds
+
+                Serial.printf("Timer: %ld, _speed: %f, _targetPosition: %d, _currentPosition: %f\n", targetTime - currentTime, _speed, _targetPosition, _currentPosition);
             }
             else
             {

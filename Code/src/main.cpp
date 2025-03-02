@@ -5,9 +5,9 @@
 // ClockSerial clockSerial = ClockSerial();
 
 ClockModule m1 = ClockModule(0);
-// ClockModule m2 = ClockModule(1);
-// ClockModule m3 = ClockModule(2);
-// ClockModule m4 = ClockModule(3);
+ClockModule m2 = ClockModule(1);
+ClockModule m3 = ClockModule(2);
+ClockModule m4 = ClockModule(3);
 
 // void handleMessage(Data data);
 
@@ -21,8 +21,17 @@ void setup()
   // clockSerial.onRecieve(handleMessage);
   // clockSerial.begin();
 
-  // m1.hourStepper->setTargetPosition(720*10);
-  m1.minuteStepper->setTargetPosition(180);
+  m1.hourStepper->setTargetPosition(720);
+  m1.minuteStepper->setTargetPosition(720);
+
+  m2.hourStepper->setTargetPosition(720);
+  m2.minuteStepper->setTargetPosition(720);
+
+  m3.hourStepper->setTargetPosition(720);
+  m3.minuteStepper->setTargetPosition(720);
+  
+  m4.hourStepper->setTargetPosition(720);
+  m4.minuteStepper->setTargetPosition(720);
 }
 
 void loop()
@@ -33,6 +42,15 @@ void loop()
 
   m1.minuteStepper->handle();
   m1.hourStepper->handle();
+
+  m2.minuteStepper->handle();
+  m2.hourStepper->handle();
+
+  m3.minuteStepper->handle();
+  m3.hourStepper->handle();
+
+  m4.minuteStepper->handle();
+  m4.hourStepper->handle();
 
   // for (double i = 0; i < PI * 2; i += PI / 16)
   // {
