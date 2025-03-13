@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>ClockClock</title>
+  <!-- <meta name="viewport" content="width=device-width, initial-scale=1"> -->
+  <!-- <link rel="icon" href="data:,"> -->
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+
+<body>
+  <h1>ClockClock</h1>
+  <canvas id="canvas"></canvas>
+
+  <script>
+    var hands = [];
+
+    for (let i = 0; i < 8; i++) {
+      hands[i] = [];
+      for (let j = 0; j < 3; j++) {
+        hands[i][j] = [135 + i * 2, 315 + i * 5];
+      }
+    }
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    canvas.height = 300;
+    canvas.width = 800;
+
+    draw();
+
+    function draw() {
+      // ctx.fillRect(0, 0, canvas.width, canvas.height, 'black');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      for (let y = 0; y < 3; y++) {
+        for (let x = 0; x < 8; x++) {
+          const gradient = ctx.createLinearGradient(y * 100, x * 100, (y + 1) * 100, (x + 1) * 100);
+
+          // Add three color stops
+          gradient.addColorStop(0, "#000");
+          gradient.addColorStop(0.2, "#222");
+          gradient.addColorStop(0.4, "#222");
+          gradient.addColorStop(1, "#333");
+
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.arc(50 + x * 100, 50 + y * 100, 50, 0, 2 * Math.PI);
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.fillStyle = '#fff';
+          ctx.arc(50 + x * 100, 50 + y * 100, 6, 0, 2 * Math.PI);
+          ctx.fill();
+
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 12;
+          ctx.beginPath();
+          ctx.moveTo(50 + x * 100, 50 + y * 100);
+          ctx.lineTo(50 + x * 100 + Math.cos(hands[x][y][0] * Math.PI / 180) * 45, 50 + y * 100 + Math.sin(hands[x][y][0] * Math.PI / 180) * 45);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(50 + x * 100, 50 + y * 100);
+          ctx.lineTo(50 + x * 100 + Math.cos(hands[x][y][1] * Math.PI / 180) * 45, 50 + y * 100 + Math.sin(hands[x][y][1] * Math.PI / 180) * 45);
+          ctx.stroke();
+        }
+      }
+    }
+  </script>
+</body>
+
+</html>

@@ -3,6 +3,13 @@
 #include "pins.h"
 #include "Font.h"
 
+#include "SPIFFS.h"
+#include "WiFiManager.h"
+#include "ESPAsyncWebServer.h"
+#include "ESPmDNS.h"
+WiFiManager wm;
+AsyncWebServer server(80);
+
 ClockSerial clockSerial;
 
 void handleMessage(Data *data);
@@ -25,30 +32,67 @@ uint8_t moduleMap[8][3][2] = {
 
 void setup()
 {
-  // Serial
+  // USB Serial
   Serial.setTxTimeoutMs(0);
   Serial.begin(115200);
   Serial.println("Helooo");
 
-  delay(5000);
+  // Initialize SPIFFS
+  if(!SPIFFS.begin(true)){
+    Serial.println("An Error has occurred while mounting SPIFFS");
+    return;
+  }
 
-  // put your setup code here, to run once:
+  // Initialize WiFi
+  wm.setDarkMode(true);
+  wm.autoConnect("ClockClock");
+  MDNS.begin("gboard");
+
+  // Route for root / web page
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(SPIFFS, "/index.html", String());
+  });
+  
+  // Route to load style.css file
+  server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(SPIFFS, "/style.css", "text/css");
+  });
+
+  // // Route to set GPIO to HIGH
+  // server.on("/on", HTTP_GET, [](AsyncWebServerRequest *request){
+  //   digitalWrite(ledPin, HIGH);    
+  //   request->send(SPIFFS, "/index.html", String(), false, processor);
+  // });
+  
+  // // Route to set GPIO to LOW
+  // server.on("/off", HTTP_GET, [](AsyncWebServerRequest *request){
+  //   digitalWrite(ledPin, LOW);    
+  //   request->send(SPIFFS, "/index.html", String(), false, processor);
+  // });
+
+  // Start webserver
+  server.begin();
+
+  // allow for modules to start
+  delay(3000);
+
+  // start clock serial communication
   clockSerial.onRecieve(handleMessage);
   clockSerial.begin(IC1, UART_A);
 
-  int i = 0;
-  while (true)
-  {
-    clockSerial.send(new Data(0, 0, 0, i));
-    delay(200);
-    clockSerial.send(new Data(0, 1, 0, i));
-    delay(200);
-    clockSerial.send(new Data(0, 2, 0, i));
-    delay(200);
-    clockSerial.send(new Data(0, 3, 0, i));
-    delay(200);
-    i += 10;
-  }
+  // int i = 0;
+  // while (true)
+  // {
+  //   clockSerial.send(new Data(0, 0, 0, i));
+  //   delay(200);
+  //   clockSerial.send(new Data(0, 1, 0, i));
+  //   delay(200);
+  //   clockSerial.send(new Data(0, 2, 0, i));
+  //   delay(200);
+  //   clockSerial.send(new Data(0, 3, 0, i));
+  //   delay(200);
+  //   i += 10;
+  // }
 }
 
 void loop()
@@ -110,7 +154,8 @@ void drawChar(uint8_t num, int x, int y)
   writeBuffer();
 }
 
-void drawTime() {
+void drawTime()
+{
   long time = millis();
 
   int seconds = time / 1000 % 60;

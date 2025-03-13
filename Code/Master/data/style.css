@@ -1,0 +1,13 @@
+html {
+  font-family: Helvetica;
+  display: inline-block;
+  margin: 0px auto;
+  text-align: center;
+}
+
+canvas {
+  aspect-ratio: 8/3;
+  padding: 20px;
+  background: linear-gradient(to bottom, #151515, #222);
+  border-radius: 2px;
+}
