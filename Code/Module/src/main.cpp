@@ -15,6 +15,7 @@ void setup()
 {
   // Serial
   Serial.begin(115200);
+  Serial.setTxTimeoutMs(0);
   Serial.println("Helooo");
 
   delay(1000);

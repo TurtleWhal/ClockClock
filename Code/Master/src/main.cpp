@@ -6,9 +6,23 @@ ClockSerial clockSerial;
 
 void handleMessage(Data *data);
 
+uint16_t buffer[8][3][2];
+
+uint8_t map[8][3][2] = {
+  {{0, 0}, {2, 0}, {4, 0}},
+  {{0, 1}, {2, 1}, {4, 1}},
+  {{0, 2}, {2, 2}, {4, 2}},
+  {{0, 3}, {2, 3}, {4, 3}},
+  {{1, 0}, {3, 0}, {5, 0}},
+  {{1, 1}, {3, 1}, {5, 1}},
+  {{1, 2}, {3, 2}, {5, 2}},
+  {{1, 3}, {3, 3}, {5, 3}},
+};
+
 void setup()
 {
   // Serial
+  Serial.setTxTimeoutMs(0);
   Serial.begin(115200);
   Serial.println("Helooo");
 
@@ -17,23 +31,6 @@ void setup()
   // put your setup code here, to run once:
   clockSerial.onRecieve(handleMessage);
   clockSerial.begin(IC1, UART_A);
-
-  // Serial.println((new Data(1, 1, 1, 1))->getData());
-
-  // clockSerial.send(new Data(0b0000000100101101000000000000000000000000000000000000000000000000));
-  // delay(1000);
-  // clockSerial.send(new Data(0, 0, 0, 360));
-  // Serial.println("Send1");
-  // delay(1000);
-  // clockSerial.send(new Data(0, 1, 0, 360));
-  // Serial.println("Send2");
-  // delay(1000);
-  // clockSerial.send(new Data(0, 2, 0, 360));
-  // Serial.println("Send3");
-  // delay(1000);
-  // clockSerial.send(new Data(0, 3, 0, 360));
-  // Serial.println("Send4");
-  // delay(1000);
 
   int i = 0;
   while (true) {
@@ -80,4 +77,13 @@ void handleMessage(Data *data)
   // {
   //   // OMG A MESSAGE JUST FOR ME!!!
   // }
+}
+
+void writeBuffer() {
+  for (int i = 0; i < 8; i++) {
+    for (int j = 0; j < 3; j++) {
+      clockSerial.send(new Data(map[i][j][0], map[i][j][1], 0, buffer[i][j][0]));
+      clockSerial.send(new Data(map[i][j][0], map[i][j][1], 1, buffer[i][j][1]));
+    }
+  }
 }
