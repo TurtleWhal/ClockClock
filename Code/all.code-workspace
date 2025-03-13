@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": "Master"
+		},
+		{
+			"path": "Module"
+		},
+		{
+			"path": "ClockSerial"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.embeddedhtml": "html",
+			"cmath": "cpp",
+			"cstdint": "cpp"
+		}
+	}
+}

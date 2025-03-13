@@ -19,6 +19,56 @@ void setup()
 
   delay(1000);
 
+  int in, out;
+
+  pinMode(UART_A, INPUT);
+  pinMode(UART_B, INPUT);
+
+  Serial1.setPins(UART_A, 26); // pin 26 is one of the headers because it is the only unused pin
+  Serial2.setPins(UART_B, 26);
+
+  Serial1.begin(9600);
+  Serial2.begin(9600);
+
+  Serial.println("Listening for input pins");
+
+  while (!Serial1.available() && !Serial2.available()) // wait until previous module sends message to determine input and output pins
+  {
+    // Serial.println(Serial1.read());
+    Serial.print(".");
+    delay(100);
+  }
+
+  Serial.println();
+
+  if (Serial1.available())
+  {
+    Serial1.read(); // clear input because for some reason the first message is garbage
+    int msg = Serial1.read();
+    Serial.println("Serial1 available: " + String(msg, 16));
+    if (msg == INIT_MSG)
+    {
+      in = UART_A;
+      out = UART_B;
+      Serial.println("Using UART_A as input");
+    }
+  }
+  else if (Serial2.available())
+  {
+    Serial2.read(); // clear input because for some reason the first message is garbage
+    int msg = Serial2.read();
+    Serial.println("Serial2 available: " + String(msg, 16));
+    if (msg == INIT_MSG)
+    {
+      in = UART_B;
+      out = UART_A;
+      Serial.println("Using UART_B as input");
+    }
+  }
+
+  Serial1.end();
+  Serial2.end();
+
   m1 = new ClockModule(0);
   m2 = new ClockModule(1);
   m3 = new ClockModule(2);
@@ -26,7 +76,7 @@ void setup()
 
   // put your setup code here, to run once:
   clockSerial.onRecieve(handleMessage);
-  clockSerial.begin();
+  clockSerial.begin(in, out);
 
   // m1->hourStepper->setTargetPosition(720);
   // m1->minuteStepper->setTargetPosition(720);

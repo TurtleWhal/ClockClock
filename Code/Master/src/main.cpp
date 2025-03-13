@@ -1,5 +1,6 @@
 #include <Arduino.h>
-#include "ClockSerial.h"
+#include "ClockSerial.h" // includes Data.h
+#include "pins.h"
 
 ClockSerial clockSerial;
 
@@ -15,35 +16,50 @@ void setup()
 
   // put your setup code here, to run once:
   clockSerial.onRecieve(handleMessage);
-  clockSerial.begin();
+  clockSerial.begin(IC1, UART_A);
 
-  Serial.println((new Data(1, 1, 1, 1))->getData());
+  // Serial.println((new Data(1, 1, 1, 1))->getData());
 
   // clockSerial.send(new Data(0b0000000100101101000000000000000000000000000000000000000000000000));
-  delay(1000);
-  clockSerial.send(new Data(0, 0, 0, 360));
-  Serial.println("Send1");
-  delay(1000);
-  clockSerial.send(new Data(0, 1, 0, 360));
-  Serial.println("Send2");
-  delay(1000);
-  clockSerial.send(new Data(0, 2, 0, 360));
-  Serial.println("Send3");
-  delay(1000);
-  clockSerial.send(new Data(0, 3, 0, 360));
-  Serial.println("Send4");
-  delay(1000);
+  // delay(1000);
+  // clockSerial.send(new Data(0, 0, 0, 360));
+  // Serial.println("Send1");
+  // delay(1000);
+  // clockSerial.send(new Data(0, 1, 0, 360));
+  // Serial.println("Send2");
+  // delay(1000);
+  // clockSerial.send(new Data(0, 2, 0, 360));
+  // Serial.println("Send3");
+  // delay(1000);
+  // clockSerial.send(new Data(0, 3, 0, 360));
+  // Serial.println("Send4");
+  // delay(1000);
+
+  int i = 0;
+  while (true) {
+    clockSerial.send(new Data(0, 0, 0, i));
+    delay(200);
+    clockSerial.send(new Data(0, 1, 0, i));
+    delay(200);
+    clockSerial.send(new Data(0, 2, 0, i));
+    delay(200);
+    clockSerial.send(new Data(0, 3, 0, i));
+    delay(200);
+    i += 10;
+  }
 }
 
 void loop()
 {
+  // clockSerial.send(0b0000000100101101000000000000000000000000000000000000000000000000);
+  // delay(1000);
   delay(10000);
-  // clockSerial.send(new Data());
-  // delay(10000);
-  // Data *data = new Data();
-  // data->setAddress(1);
-  // clockSerial.send(data);
-  // delay(25000);
+  clockSerial.send(new Data());
+  delay(10000);
+  Data *data = new Data();
+  data->setAddress(1);
+  clockSerial.send(data);
+  delay(25000);
 
   // put your main code here, to run repeatedly:
   // Serial.println("running");

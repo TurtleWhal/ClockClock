@@ -1,61 +1,11 @@
 #include "ClockSerial.h"
-#include "pins.h"
-
-#define INIT_MSG 0xC1 // 0xC1OCK
 
 ClockSerial::ClockSerial() {}
 
-void ClockSerial::begin()
+void ClockSerial::begin(int in, int out)
 {
-    pinMode(UART_A, INPUT);
-    pinMode(UART_B, INPUT);
-
-    Serial1.setPins(UART_A, 26); // pin 26 is one of the headers because it is the only unused pin
-    Serial2.setPins(UART_B, 26);
-
-    Serial1.begin(9600);
-    Serial2.begin(9600);
-
-    Serial.println("Listening for input pins");
-
-    while (!Serial1.available() && !Serial2.available()) // wait until previous module sends message to determine input and output pins
-    {
-        // Serial.println(Serial1.read());
-        Serial.print(".");
-        delay(100);
-    }
-
-    Serial.println();
-
-    if (Serial1.available())
-    {
-        Serial1.read(); // clear input because for some reason the first message is garbage
-        int msg = Serial1.read();
-        Serial.println("Serial1 available: " + String(msg, 16));
-        if (msg == INIT_MSG)
-        {
-            _in = UART_A;
-            _out = UART_B;
-            Serial.println("Using UART_A as input");
-        }
-    }
-    else if (Serial2.available())
-    {
-        Serial2.read(); // clear input because for some reason the first message is garbage
-        int msg = Serial2.read();
-        Serial.println("Serial2 available: " + String(msg, 16));
-        if (msg == INIT_MSG)
-        {
-            _in = UART_B;
-            _out = UART_A;
-            Serial.println("Using UART_B as input");
-        }
-    }
-    else
-        return;
-
-    Serial1.end();
-    Serial2.end();
+    _in = in;
+    _out = out;
 
     pinMode(_in, INPUT);
     pinMode(_out, OUTPUT);
@@ -66,7 +16,7 @@ void ClockSerial::begin()
     Serial1.write(INIT_MSG);
     Serial1.flush();
 
-    for (int i = 0; i < 10; i++)
+    for (int i = 0; i < 10; i++) // broadcast for 1 second
     {
         Serial1.write(INIT_MSG);
         Serial1.flush();
@@ -77,6 +27,19 @@ void ClockSerial::begin()
 
     Serial1.onReceive([this]()
                       { handle(); });
+}
+
+// Function to log the full 64-bit number in binary
+void printData(uint64_t value, String prefix = "Data")
+{
+    Serial.print(prefix + ": ");
+    for (int i = 63; i >= 0; i--)
+    {
+        Serial.print((value >> i) & 0x01); // Extract and print each bit of the 64-bit value
+        if (i == 64 - 6 || i == 64 - 8 || i == 64 - 9 || i == 64 - 19)
+            Serial.print(' '); // Space between bytes for readability
+    }
+    Serial.println();
 }
 
 void ClockSerial::handle()
@@ -100,8 +63,11 @@ void ClockSerial::handle()
         uint64_t receivedData = 0;
         for (int i = 0; i < 8; i++)
         {
+            // Reverse the order by shifting the least significant byte first
             receivedData |= (uint64_t)((uint8_t)data[i]) << (i * 8); // Combine the bytes into uint64_t
         }
+
+        printData(receivedData, "Received");
 
         // Pass the combined data to the callback function
         _cb(new Data(receivedData));
@@ -115,9 +81,20 @@ void ClockSerial::handle()
 
 void ClockSerial::send(Data *data)
 {
+    printData(data->getData(), "Sending Data");
     for (int i = 0; i < 8; i++) // Send 8 bytes for uint64_t
     {
         Serial1.write((uint8_t)(data->getData() >> (i * 8)));
+    }
+}
+
+void ClockSerial::send(uint64_t data)
+{
+    printData(data, "Sending Bytes");
+    for (int i = 0; i < 8; i++)
+    {
+        uint8_t byteToSend = (data >> (8 * (7 - i))) & 0xFF; // Extract each byte
+        Serial1.write(byteToSend);                           // Send the byte
     }
 }
 

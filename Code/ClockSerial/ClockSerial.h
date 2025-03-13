@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include "Data.h"
 
+#define INIT_MSG 0xC1 // 0xC1OCK
+
 class ClockSerial
 {
 private:
@@ -12,7 +14,8 @@ private:
 
 public:
     ClockSerial();
-    void begin();
+    void begin(int in, int out);
     void send(Data *data);
+    void send(uint64_t data);
     void onRecieve(void (*cb)(Data *));
 };
