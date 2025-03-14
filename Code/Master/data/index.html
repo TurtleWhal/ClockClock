@@ -10,29 +10,40 @@
 
 <body>
   <h1>ClockClock</h1>
+  <p id="status">Not Connected</p>
   <canvas id="canvas"></canvas>
-  <h1 id="status">Not Connected</h1>
+
+  <p>Upload Firmware for Modules: <br>
+    <input type="file" id="fileInput" accept=".bin">
+    <button id="uploadButton" onclick="uploadFile()">Upload</button>
+  </p>
 
   <script>
     var hands = [];
+    var step = 19.75;
 
     for (let i = 0; i < 8; i++) {
       hands[i] = [];
       for (let j = 0; j < 3; j++) {
-        hands[i][j] = [10 * i, 360 - 10 * i];
+        hands[i][j] = [step * (i+1), 360 - step * (i + 1)];
       }
     }
 
-    var gateway = `ws://${window.location.hostname}/ws`;
     var websocket;
+
     window.addEventListener('load', onLoad);
 
+    function onLoad(event) {
+      initWebSocket();
+    }
+
     function initWebSocket() {
-      console.log('Trying to open a WebSocket connection...');
+      var gateway = `ws://${window.location.hostname}/ws`;
       websocket = new WebSocket(gateway);
+      websocket.binaryType = 'arraybuffer';  // Important: Set WebSocket to handle binary data
       websocket.onopen = onOpen;
       websocket.onclose = onClose;
-      websocket.onmessage = onMessage; // <-- add this line
+      websocket.onmessage = onMessage;
     }
 
     function onOpen(event) {
@@ -43,35 +54,68 @@
     function onClose(event) {
       console.log('Connection closed');
       document.getElementById("status").innerHTML = "Not Connected";
-
-      setTimeout(initWebSocket, 10000); // wait 10 seconds to try to reconnect
+      setTimeout(initWebSocket, 10000);  // Try to reconnect after 10 seconds
     }
 
     function onMessage(event) {
-      hands = JSON.parse(event.data)["buffer"];
+      const hands = JSON.parse(event.data)["buffer"];
       console.log(hands);
-      draw();
+      draw(hands);
     }
 
-    function onLoad(event) {
-      initWebSocket();
+    function uploadFile() {
+      const fileInput = document.getElementById('fileInput');
+
+      if (fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+
+        reader.onload = function (e) {
+          const firmwareSize = file.size;
+          console.log("Starting firmware upload, size:", firmwareSize);
+
+          // First, send a JSON message to indicate the firmware upload is starting
+          websocket.send(JSON.stringify({ "type": "firmware", "size": firmwareSize }));
+
+          // Then, send the binary data as an ArrayBuffer
+          const arrayBuffer = e.target.result;
+          websocket.send(arrayBuffer);  // Send the binary data directly
+        };
+
+        reader.readAsArrayBuffer(file);
+      } else {
+        alert('No file selected');
+      }
     }
 
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
 
-    canvas.height = 300;
-    canvas.width = 800;
+    canvas.height = 330;
+    canvas.width = 880;
 
     draw();
 
     function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // ctx.clearRect(0, 0, canvas.width, canvas.height);
+      var bgGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      bgGradient.addColorStop(0, "#151515");
+      bgGradient.addColorStop(1, "#222");
+      ctx.fillStyle = bgGradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      var radius = 50;
+      var space = 110;
+      var halfspace = space / 2;
+      var handlength = 45;
+      var shadowx = 3;
+      var shadowy = 3;
+      // var margin = 10;
 
       for (let y = 0; y < 3; y++) {
         for (let x = 0; x < 8; x++) {
 
-          const gradient = ctx.createLinearGradient(y * 100, x * 100, (y + 1) * 100, (x + 1) * 100);
+          const gradient = ctx.createLinearGradient(y * space, x * space, (y + 1) * space, (x + 1) * space);
 
           // Add three color stops
           gradient.addColorStop(0, "#000");
@@ -82,52 +126,51 @@
           // draw background of hands
           ctx.fillStyle = gradient;
           ctx.beginPath();
-          ctx.arc(50 + x * 100, 50 + y * 100, 50, 0, 2 * Math.PI);
+          ctx.arc(halfspace + x * space, halfspace + y * space, radius, 0, 2 * Math.PI);
           ctx.fill();
 
           // draw shadow of bottom hand
           ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
           ctx.lineWidth = 12;
           ctx.beginPath();
-          ctx.moveTo(53 + x * 100, 53 + y * 100);
-          ctx.lineTo(53 + x * 100 + Math.cos(hands[x][y][0] * Math.PI / 180) * 45, 53 + y * 100 + Math.sin(hands[x][y][0] * Math.PI / 180) * 45);
+          ctx.moveTo(halfspace + shadowx + x * space, halfspace + shadowy + y * space);
+          ctx.lineTo(halfspace + shadowx + x * space + Math.cos(hands[x][y][0] * Math.PI / 180) * handlength, halfspace + shadowy + y * space + Math.sin(hands[x][y][0] * Math.PI / 180) * handlength);
           ctx.stroke();
 
           // draw bottom hand
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 12;
           ctx.beginPath();
-          ctx.moveTo(50 + x * 100, 50 + y * 100);
-          ctx.lineTo(50 + x * 100 + Math.cos(hands[x][y][0] * Math.PI / 180) * 45, 50 + y * 100 + Math.sin(hands[x][y][0] * Math.PI / 180) * 45);
+          ctx.moveTo(halfspace + x * space, halfspace + y * space);
+          ctx.lineTo(halfspace + x * space + Math.cos(hands[x][y][0] * Math.PI / 180) * handlength, halfspace + y * space + Math.sin(hands[x][y][0] * Math.PI / 180) * handlength);
           ctx.stroke();
-
 
           // draw shadow of top hand
           ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
           ctx.lineWidth = 12;
           ctx.beginPath();
-          ctx.moveTo(53 + x * 100, 53 + y * 100);
-          ctx.lineTo(53 + x * 100 + Math.cos(hands[x][y][1] * Math.PI / 180) * 45, 53 + y * 100 + Math.sin(hands[x][y][1] * Math.PI / 180) * 45);
+          ctx.moveTo(halfspace + shadowx + x * space, halfspace + shadowy + y * space);
+          ctx.lineTo(halfspace + shadowx + x * space + Math.cos(hands[x][y][1] * Math.PI / 180) * handlength, halfspace + shadowy + y * space + Math.sin(hands[x][y][1] * Math.PI / 180) * handlength);
           ctx.stroke();
 
-          // draw circle in center
+          // draw circle shadow
           ctx.beginPath();
           ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-          ctx.arc(53 + x * 100, 53 + y * 100, 6, hands[x][y][1] * (Math.PI / 180) + Math.PI / 2, hands[x][y][1] * (Math.PI / 180) - Math.PI / 2);
+          ctx.arc(halfspace + shadowx + x * space, halfspace + shadowy + y * space, 6, hands[x][y][1] * (Math.PI / 180) + Math.PI / 2, hands[x][y][1] * (Math.PI / 180) - Math.PI / 2);
           ctx.fill();
 
           // draw circle in center
           ctx.beginPath();
           ctx.fillStyle = '#fff';
-          ctx.arc(50 + x * 100, 50 + y * 100, 6, 0, 2 * Math.PI);
+          ctx.arc(halfspace + x * space, halfspace + y * space, 6, 0, 2 * Math.PI);
           ctx.fill();
 
           // draw top hand
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 12;
           ctx.beginPath();
-          ctx.moveTo(50 + x * 100, 50 + y * 100);
-          ctx.lineTo(50 + x * 100 + Math.cos(hands[x][y][1] * Math.PI / 180) * 45, 50 + y * 100 + Math.sin(hands[x][y][1] * Math.PI / 180) * 45);
+          ctx.moveTo(halfspace + x * space, halfspace + y * space);
+          ctx.lineTo(halfspace + x * space + Math.cos(hands[x][y][1] * Math.PI / 180) * handlength, halfspace + y * space + Math.sin(hands[x][y][1] * Math.PI / 180) * handlength);
           ctx.stroke();
         }
       }

@@ -7,9 +7,29 @@ html {
   text-align: center;
 }
 
-canvas {
+/* canvas {
   aspect-ratio: 8/3;
   padding: 20px;
   background: linear-gradient(to bottom, #151515, #222);
   border-radius: 2px;
+} */
+
+button {
+  color: white;
+  background-color: #333;
+  padding: 10px 20px;
+  border-radius: 5px;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+input {
+  color: white;
+  background-color: #333;
+  padding: 10px 20px;
+  border-radius: 5px;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
 }

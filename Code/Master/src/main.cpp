@@ -4,6 +4,7 @@
 #include "Font.h"
 
 #include "EzTime.h"
+#include "ArduinoJson.h"
 
 #include "SPIFFS.h"
 #include "WiFiManager.h"
@@ -124,15 +125,68 @@ void loop()
   delay(1000);
 }
 
+File firmwareFile;
+size_t totalReceived = 0;
+size_t firmwareSize = 0;
+
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
 {
   AwsFrameInfo *info = (AwsFrameInfo *)arg;
-  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT)
+
+  // Handle the initial JSON message to start the firmware upload
+  if (info->index == 0 && info->opcode == WS_TEXT)
   {
     data[len] = 0;
-    if (strcmp((char *)data, "toggle") == 0)
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, data);
+
+    if (error)
     {
-      // Handle WebSocket message here if necessary
+      Serial.println("Failed to parse JSON");
+      return;
+    }
+
+    String type = doc["type"];
+    if (type == "firmware")
+    {
+      firmwareSize = doc["size"]; // Get the firmware size from JSON
+      totalReceived = 0;
+
+      // Open the firmware file for writing
+      firmwareFile = SPIFFS.open("/firmware.bin", FILE_WRITE);
+      if (!firmwareFile)
+      {
+        Serial.println("Failed to open file for writing");
+        return;
+      }
+
+      Serial.println("Firmware upload initiated");
+    }
+  }
+
+  // Handle the binary data (firmware) chunks
+  if (info->opcode == WS_BINARY && firmwareFile)
+  {
+    // Write the received binary chunk to the file
+    firmwareFile.write(data, len);
+    totalReceived += len;
+
+    Serial.printf("Received %d/%d bytes\n", totalReceived, firmwareSize);
+  }
+
+  // Close the file and complete the upload when the transmission is finished
+  if (info->final && firmwareFile)
+  {
+    firmwareFile.close();
+    Serial.println("Firmware upload completed");
+
+    if (totalReceived == firmwareSize)
+    {
+      Serial.println("Firmware file written successfully.");
+    }
+    else
+    {
+      Serial.println("Warning: Firmware size mismatch!");
     }
   }
 }
