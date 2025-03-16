@@ -13,6 +13,7 @@ private:
     int _pin4;
     int _steps = 720;
     int _microsteps = 16;
+    bool _microstep = false;
 
     int _targetPosition = 0;
     double _currentPosition = 0.0;
@@ -20,7 +21,9 @@ private:
 
     bool _running = false;
 
-    double _acceleration = 120.0; // steps/second/ loop?
+    // double _acceleration = 120.0; // steps/second/ loop?
+    // double _maxspeed = 360.0; // steps/second
+    double _acceleration = 60.0; // steps/second/ loop?
     double _maxspeed = 360.0; // steps/second
     double _speed = 0.0; // steps/second
 
@@ -38,7 +41,7 @@ private:
         {S, N}
     };
 
-    void writeMagnet(int p1, int p2, double state);
+    void writeMagnet(int p1, int p2, int state);
 
 public:
     StepperMotor(int pin1, int pin2, int pin3, int pin4);
@@ -46,8 +49,9 @@ public:
     void handle();
 
     void setTargetPosition(int position);
-    int getCurrentPosition();
     int getTargetPosition();
+    void setCurrentPosition(int position);
+    int getCurrentPosition();
     void setSpeed(int speed); // steps/second
     void setAcceleration(int acceleration);
 };

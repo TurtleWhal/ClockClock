@@ -26,6 +26,14 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
 // Holds the buffer for drawing
 uint16_t buffer[8][3][2];
 
+#define DEG_TO_STEPS 2
+
+#define MODE_TIME 0
+#define MODE_CUSTOM 1
+#define MODE_CLEAR 2
+
+int mode = MODE_TIME;
+
 uint8_t moduleMap[8][3][2] = {
     {{0, 0}, {3, 0}, {4, 0}},
     {{0, 1}, {3, 1}, {4, 1}},
@@ -42,7 +50,7 @@ Timezone myTZ;
 void setup()
 {
   // USB Serial
-  Serial.setTxTimeoutMs(0);
+  // Serial.setTxTimeoutMs(0);
   Serial.begin(115200);
   Serial.println("Helooo");
 
@@ -68,7 +76,7 @@ void setup()
 
   // Wait a little bit to not trigger DDoS protection on server
   // See https://github.com/ropg/ezTime#timezonedropnl
-  delay(5000);
+  delay(1000);
 
   // Route for root / web page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -86,43 +94,52 @@ void setup()
 
   // start clock serial communication
   clockSerial.onRecieve(handleMessage);
-  clockSerial.begin(IC1, UART_A);
+  clockSerial.begin(IC1, UART_A, true);
 }
+
+bool modeChanged = true;
+int lastMinute = -1;
 
 void loop()
 {
-  drawTime();
-
-  // Manually construct a JSON string
-  String jsonString = "{ \"buffer\": [";
-
-  for (int i = 0; i < 8; i++)
+  switch (mode)
   {
-    jsonString += "[";
-    for (int j = 0; j < 3; j++)
+  case MODE_TIME:
+    if (lastMinute != myTZ.minute() || modeChanged)
     {
-      jsonString += "[";
-      jsonString += String(buffer[i][j][0]) + "," + String(buffer[i][j][1]);
-      jsonString += "]";
-      if (j < 2)
+      drawTime();
+      writeBuffer();
+      lastMinute = myTZ.minute();
+    }
+    break;
+
+  case MODE_CUSTOM:
+    // TODO
+    break;
+
+  case MODE_CLEAR:
+    if (modeChanged)
+    {
+      for (int i = 0; i < 8; i++)
       {
-        jsonString += ",";
+        for (int j = 0; j < 3; j++)
+        {
+          buffer[i][j][0] = 0;
+          buffer[i][j][1] = 0;
+        }
       }
+
+      writeBuffer();
     }
-    jsonString += "]";
-    if (i < 7)
-    {
-      jsonString += ",";
-    }
+    break;
   }
 
-  jsonString += "] }";
+  Serial.println(WiFi.isConnected());
 
-  // Send the constructed JSON string over WebSocket to all connected clients
-  ws.textAll(jsonString);
-
-  // Delay for 1 minute (60000 milliseconds)
+  // modeChanged = false;
+  modeChanged = true;
   delay(1000);
+  // vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 
 File firmwareFile;
@@ -161,6 +178,20 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
       }
 
       Serial.println("Firmware upload initiated");
+    }
+    else if (type == "mode")
+    {
+      String newmode = doc["mode"];
+      Serial.printf("Mode: %s\n", newmode.c_str());
+
+      if (newmode == "time")
+        mode = MODE_TIME;
+      else if (newmode == "custom")
+        mode = MODE_CUSTOM;
+      else if (newmode == "clear")
+        mode = MODE_CLEAR;
+
+      modeChanged = true;
     }
   }
 
@@ -213,17 +244,48 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
 
 void handleMessage(Data *data)
 {
-  Serial.println("Message received");
+  // Serial.println("Message received");
 }
 
 void writeBuffer()
 {
+  // send to all modules
+  for (int j = 0; j < 3; j++)
+  {
+    for (int i = 0; i < 8; i++)
+    {
+      clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 0, buffer[i][j][0] * DEG_TO_STEPS));
+      clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 1, buffer[i][j][1] * DEG_TO_STEPS));
+    }
+  }
+
+  // send to webpage
+  String jsonString = "{ \"buffer\": [";
+
   for (int i = 0; i < 8; i++)
+  {
+    jsonString += "[";
     for (int j = 0; j < 3; j++)
     {
-      clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 0, buffer[i][j][0]));
-      clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 1, buffer[i][j][1]));
+      jsonString += "[";
+      jsonString += String(buffer[i][j][0]) + "," + String(buffer[i][j][1]);
+      jsonString += "]";
+      if (j < 2)
+      {
+        jsonString += ",";
+      }
     }
+    jsonString += "]";
+    if (i < 7)
+    {
+      jsonString += ",";
+    }
+  }
+
+  jsonString += "] }";
+
+  // Send the constructed JSON string over WebSocket to all connected clients
+  ws.textAll(jsonString);
 }
 
 void drawChar(uint8_t num, int x, int y)

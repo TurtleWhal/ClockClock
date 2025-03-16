@@ -13,6 +13,17 @@
   <p id="status">Not Connected</p>
   <canvas id="canvas"></canvas>
 
+  <p>Mode:
+    <select onchange="websocket.send(JSON.stringify({'type': 'mode', 'mode': this.value}));">
+      <option value="time">Time</option>
+      <!-- <option value="text">Text</option> -->
+      <option value="clear">Clear</option>
+    </select>
+  </p>
+  <!-- <p>Custom Text:
+    <input type="text" id="text" oninput="websocket.send(JSON.stringify({'type': 'text', 'text': this.value}));">
+  </p> -->
+
   <p>Upload Firmware for Modules: <br>
     <input type="file" id="fileInput" accept=".bin">
     <button id="uploadButton" onclick="uploadFile()">Upload</button>
@@ -38,7 +49,7 @@
     }
 
     function initWebSocket() {
-      var gateway = `ws://${window.location.hostname}/ws`;
+      var gateway = `ws://${window.location.hostname || 'clockclock'}/ws`;
       websocket = new WebSocket(gateway);
       websocket.binaryType = 'arraybuffer';  // Important: Set WebSocket to handle binary data
       websocket.onopen = onOpen;
@@ -58,9 +69,9 @@
     }
 
     function onMessage(event) {
-      const hands = JSON.parse(event.data)["buffer"];
+      hands = JSON.parse(event.data)["buffer"];
       console.log(hands);
-      draw(hands);
+      draw();
     }
 
     function uploadFile() {
@@ -79,6 +90,7 @@
 
           // Then, send the binary data as an ArrayBuffer
           const arrayBuffer = e.target.result;
+          console.log(arrayBuffer);
           websocket.send(arrayBuffer);  // Send the binary data directly
         };
 
@@ -138,7 +150,7 @@
           ctx.stroke();
 
           // draw bottom hand
-          ctx.strokeStyle = '#fff';
+          ctx.strokeStyle = '#ddd';
           ctx.lineWidth = 12;
           ctx.beginPath();
           ctx.moveTo(halfspace + x * space, halfspace + y * space);

@@ -20,7 +20,7 @@ void setup()
 
   delay(1000);
 
-  int in, out;
+  int in = 0, out = 0;
 
   pinMode(UART_A, INPUT);
   pinMode(UART_B, INPUT);
@@ -33,37 +33,41 @@ void setup()
 
   Serial.println("Listening for input pins");
 
-  while (!Serial1.available() && !Serial2.available()) // wait until previous module sends message to determine input and output pins
+  bool listening = true;
+
+  while (listening) // wait until previous module sends message to determine input and output pins
   {
     // Serial.println(Serial1.read());
     Serial.print(".");
     delay(100);
-  }
 
-  Serial.println();
-
-  if (Serial1.available())
-  {
-    Serial1.read(); // clear input because for some reason the first message is garbage
-    int msg = Serial1.read();
-    Serial.println("Serial1 available: " + String(msg, 16));
-    if (msg == INIT_MSG)
+    if (Serial1.available())
     {
-      in = UART_A;
-      out = UART_B;
-      Serial.println("Using UART_A as input");
+      // Serial1.read(); // clear input because for some reason the first message is garbage
+      int msg = Serial1.read();
+      Serial.println();
+      Serial.println("Serial1 available: " + String(msg, 16));
+      if (msg == INIT_MSG)
+      {
+        in = UART_A;
+        out = UART_B;
+        listening = false;
+        Serial.println("Using UART_A as input");
+      }
     }
-  }
-  else if (Serial2.available())
-  {
-    Serial2.read(); // clear input because for some reason the first message is garbage
-    int msg = Serial2.read();
-    Serial.println("Serial2 available: " + String(msg, 16));
-    if (msg == INIT_MSG)
+    else if (Serial2.available())
     {
-      in = UART_B;
-      out = UART_A;
-      Serial.println("Using UART_B as input");
+      // Serial2.read(); // clear input because for some reason the first message is garbage
+      int msg = Serial2.read();
+      Serial.println();
+      Serial.println("Serial2 available: " + String(msg, 16));
+      if (msg == INIT_MSG)
+      {
+        in = UART_B;
+        out = UART_A;
+        listening = false;
+        Serial.println("Using UART_B as input");
+      }
     }
   }
 
@@ -77,7 +81,7 @@ void setup()
 
   // put your setup code here, to run once:
   clockSerial.onRecieve(handleMessage);
-  clockSerial.begin(in, out);
+  clockSerial.begin(in, out, true);
 
   // m1->hourStepper->setTargetPosition(720);
   // m1->minuteStepper->setTargetPosition(720);
@@ -145,9 +149,8 @@ void handleMessage(Data *data)
 
   if (address > 0)
   {
-    Data *d = new Data();
-    d->setAddress(address - 1);
-    clockSerial.send(d);
+    data->setAddress(address - 1);
+    clockSerial.send(data);
   }
   else
   {

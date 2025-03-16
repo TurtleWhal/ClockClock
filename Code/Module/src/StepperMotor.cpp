@@ -14,7 +14,16 @@ StepperMotor::StepperMotor(int pin1, int pin2, int pin3, int pin4)
     pinMode(_pin3, OUTPUT);
     pinMode(_pin4, OUTPUT);
 
-    analogWriteFrequency(80000);
+    // analogWriteFrequency(_pin1, 20000);
+    // analogWriteFrequency(_pin2, 20000);
+    // analogWriteFrequency(_pin3, 20000);
+    // analogWriteFrequency(_pin4, 20000);
+
+    // analogWriteResolution(_pin1, 16);
+    // analogWriteResolution(_pin2, 16);
+    // analogWriteResolution(_pin3, 16);
+    // analogWriteResolution(_pin4, 16);
+
 }
 
 void StepperMotor::handle()
@@ -59,23 +68,40 @@ void StepperMotor::handle()
                 }
             }
 
-            // Update motor position based on direction
-            _currentPosition += direction * (1.0 / _microsteps);
+            if (_microstep)
+            {
+                // Update motor position based on direction
+                _currentPosition += direction * (1.0 / _microsteps);
 
-            // Analog microstepping logic with direction control
-            double sineA = sin(remainder(_currentPosition / 4, 1) * (2 * PI));
-            uint8_t raiseA = sineA <= 0 ? 1 : 0;
-            analogWrite(_pin1, (sineA + raiseA) * 255);
-            digitalWrite(_pin2, raiseA);
+                // Analog microstepping logic with direction control
+                double sineA = sin(remainder(_currentPosition / 4, 1) * (2 * PI));
+                uint8_t raiseA = sineA <= 0 ? 1 : 0;
+                analogWrite(_pin1, (sineA + raiseA) * 255);
+                digitalWrite(_pin2, raiseA);
 
-            double sineB = sin((remainder(_currentPosition / 4, 1) * (2 * PI)) + (PI / 2));
-            uint8_t raiseB = sineB <= 0 ? 1 : 0;
-            analogWrite(_pin3, (sineB + raiseB) * 255);
-            digitalWrite(_pin4, raiseB);
+                double sineB = sin((remainder(_currentPosition / 4, 1) * (2 * PI)) + (PI / 2));
+                uint8_t raiseB = sineB <= 0 ? 1 : 0;
+                analogWrite(_pin3, (sineB + raiseB) * 255);
+                digitalWrite(_pin4, raiseB);
 
-            // Calculate the next step's target time based on the current speed and direction
-            if (_speed > 0)
-                targetTime = currentTime + (1000000.0 / (_speed * _microsteps));
+                // Calculate the next step's target time based on the current speed and direction
+                if (_speed > 0)
+                    targetTime = currentTime + (1000000.0 / (_speed * _microsteps));
+            }
+            else
+            {
+                // Update motor position based on direction
+                _currentPosition += direction * (1.0 / 2);
+
+                _phase = int(_currentPosition * 2) % 8;
+
+                writeMagnet(_pin1, _pin2, _phases[_phase][0]);
+                writeMagnet(_pin3, _pin4, _phases[_phase][1]);
+
+                // Calculate the next step's target time based on the current speed and direction
+                if (_speed > 0)
+                    targetTime = currentTime + (1000000.0 / (_speed * 2));
+            }
 
             // Serial.printf("Timer: %ld, _speed: %f, _targetPosition: %d, _currentPosition: %f\n", targetTime - currentTime, _speed, _targetPosition, _currentPosition);
 
@@ -92,17 +118,17 @@ void StepperMotor::handle()
     }
 }
 
-void StepperMotor::writeMagnet(int p1, int p2, double state)
+void StepperMotor::writeMagnet(int p1, int p2, int state)
 {
     if (state > 0)
     {
-        analogWrite(p1, state * 255);
+        digitalWrite(p1, state);
         digitalWrite(p2, LOW);
     }
     else if (state < 0)
     {
         digitalWrite(p1, LOW);
-        analogWrite(p2, state * 255);
+        digitalWrite(p2, state);
     }
     else
     {
@@ -113,6 +139,9 @@ void StepperMotor::writeMagnet(int p1, int p2, double state)
 
 void StepperMotor::setTargetPosition(int position)
 {
+    if (position == _targetPosition)
+        return;
+
     _running = false;
     _speed = 0;
     // lastTime = micros();
@@ -120,6 +149,11 @@ void StepperMotor::setTargetPosition(int position)
     // targetTime = lastTime;
     _targetPosition = position;
     _running = true;
+}
+
+void StepperMotor::setCurrentPosition(int position)
+{
+    _currentPosition = position;
 }
 
 int StepperMotor::getCurrentPosition()
