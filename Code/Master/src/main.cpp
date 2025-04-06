@@ -1,5 +1,4 @@
 #include <Arduino.h>
-// #include "ClockSerial.h" // includes Data.h
 #include "pins.h"
 #include "Font.h"
 
@@ -16,18 +15,21 @@ WiFiManager wm;
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
-// ClockSerial clockSerial;
 SerialTransfer serialTransfer;
 
-// void handleMessage(Data *data);
 void writeBuffer();
 void drawChar(uint8_t num, int x, int y);
 void drawTime();
 void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
              void *arg, uint8_t *data, size_t len);
 
+#define WIDTH 8
+#define HEIGHT 3
+#define CLOCKS WIDTH *HEIGHT
+#define MODULES CLOCKS / 4
+
 // Holds the buffer for drawing
-uint16_t buffer[8][3][2];
+uint16_t buffer[WIDTH][HEIGHT][2];
 
 #define DEG_TO_STEPS 2
 
@@ -53,7 +55,6 @@ Timezone myTZ;
 void setup()
 {
   // USB Serial
-  // Serial.setTxTimeoutMs(0);
   Serial.begin(115200);
   Serial.println("Helooo");
 
@@ -95,15 +96,10 @@ void setup()
 
   server.begin();
 
-  // start clock serial communication
-  // clockSerial.onRecieve(handleMessage);
-  // clockSerial.begin(IC1, UART_A, true);
-
   Serial1.setPins(IC1, UART_A);
   Serial1.begin(2000000);
 
   serialTransfer.begin(Serial1);
-  // serialTransfer.begin(Serial1);
 }
 
 bool modeChanged = true;
@@ -129,9 +125,9 @@ void loop()
   case MODE_CLEAR:
     if (modeChanged)
     {
-      for (int i = 0; i < 8; i++)
+      for (int i = 0; i < WIDTH; i++)
       {
-        for (int j = 0; j < 3; j++)
+        for (int j = 0; j < HEIGHT; j++)
         {
           buffer[i][j][0] = 90;
           buffer[i][j][1] = 90;
@@ -253,46 +249,32 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
   }
 }
 
-// void handleMessage(Data *data)
-// {
-//   // Serial.println("Message received");
-// }
-
 void writeBuffer()
 {
+  Serial.println("Sending Buffer");
+
+  uint16_t sendBuffer[CLOCKS][2];
+
+  // convert the x-y buffer array to a linear array for sending to modules arranged in a Z format
+  for (int i = 0; i < MODULES; i++)
+  {
+    int row = i / (WIDTH / 4);
+    int column = (row % 2 == 0) ? (i % (WIDTH / 4)) : ((WIDTH / 4) - 1) - (i % (WIDTH / 4)); // if row is odd invert columns
+
+    for (int j = 0; j < 4; j++)
+    {
+      sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0] * 2;
+      sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1] * 2;
+    }
+  }
+
   uint16_t sendSize = 0;
 
-  sendSize = serialTransfer.txObj(buffer, sendSize);
-  // sendSize = serialTransfer.txObj(0x0123456789ABCDEF, sendSize);
+  uint8_t address = 3;
+  sendSize = serialTransfer.txObj(address, sendSize);
+  sendSize = serialTransfer.txObj(sendBuffer, sendSize);
 
-  Serial.println("sendSize: " + String(sendSize));
   serialTransfer.sendData(sendSize);
-  Serial.println("sent");
-
-  Serial.print(buffer[6][0][0]);
-  Serial.print(" ");
-  Serial.print(buffer[6][0][1]);
-  Serial.print(", ");
-  Serial.print(buffer[7][0][0]);
-  Serial.print(" ");
-  Serial.print(buffer[7][0][1]);
-  Serial.println();
-
-  // send to all modules
-  // for (int j = 0; j < 3; j++)
-  // {
-  //   for (int i = 0; i < 8; i++)
-  //   {
-  // clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 0, buffer[i][j][0] * DEG_TO_STEPS));
-  // clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 1, buffer[i][j][1] * DEG_TO_STEPS));
-  // Data *bottom = new Data(moduleMap[i][j][0], moduleMap[i][j][1], 0, buffer[i][j][0] * DEG_TO_STEPS);
-  // Data *top = new Data(moduleMap[i][j][0], moduleMap[i][j][1], 1, buffer[i][j][1] * DEG_TO_STEPS);
-  // clockSerial.send(bottom);
-  // clockSerial.send(top);
-  // free(bottom);
-  // free(top);
-  //   }
-  // }
 
   // send to webpage
   String jsonString = "{ \"buffer\": [";

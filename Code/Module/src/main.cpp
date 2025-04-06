@@ -1,9 +1,6 @@
 #include <Arduino.h>
-// #include "ClockSerial.h"
 #include "ClockModule.h"
 #include "SerialTransfer.h"
-
-// ClockSerial clockSerial = ClockSerial();
 
 ClockModule *m1;
 ClockModule *m2;
@@ -11,8 +8,6 @@ ClockModule *m3;
 ClockModule *m4;
 
 SerialTransfer serialTransfer;
-
-// void handleMessage(Data *data);
 
 void setup()
 {
@@ -24,100 +19,72 @@ void setup()
 
   int in = 0, out = 0;
 
-  // pinMode(UART_A, INPUT);
-  // pinMode(UART_B, INPUT);
-  pinMode(UART_A, INPUT);
-  pinMode(UART_B, OUTPUT);
+  pinMode(UART_A, INPUT_PULLDOWN);
+  pinMode(UART_B, INPUT_PULLDOWN);
 
-  // Serial1.setPins(UART_A, 26); // pin 26 is one of the headers because it is the only unused pin
-  // Serial2.setPins(UART_B, 26);
-
-  Serial1.setPins(UART_A, UART_B);
+  Serial1.setPins(UART_A, 26); // pin 26 is one of the headers because it is the only unused pin
+  Serial2.setPins(UART_B, 26);
 
   Serial1.begin(2000000);
-  // Serial2.begin(9600);
+  Serial2.begin(2000000);
 
-  // Serial.println("Listening for input pins");
+  Serial1.flush();
+  Serial2.flush();
 
-  // bool listening = true;
+  Serial.println("Listening for input pins");
 
-  // while (listening) // wait until previous module sends message to determine input and output pins
-  // {
-  //   // Serial.println(Serial1.read());
-  //   Serial.print(".");
-  //   delay(100);
+  bool listening = true;
 
-  //   if (Serial1.available())
-  //   {
-  //     // Serial1.read(); // clear input because for some reason the first message is garbage
-  //     int msg = Serial1.read();
-  //     Serial.println();
-  //     Serial.println("Serial1 available: " + String(msg, 16));
-  //     if (msg == INIT_MSG)
-  //     {
-  //       in = UART_A;
-  //       out = UART_B;
-  //       listening = false;
-  //       Serial.println("Using UART_A as input");
-  //     }
-  //   }
-  //   else if (Serial2.available())
-  //   {
-  //     // Serial2.read(); // clear input because for some reason the first message is garbage
-  //     int msg = Serial2.read();
-  //     Serial.println();
-  //     Serial.println("Serial2 available: " + String(msg, 16));
-  //     if (msg == INIT_MSG)
-  //     {
-  //       in = UART_B;
-  //       out = UART_A;
-  //       listening = false;
-  //       Serial.println("Using UART_B as input");
-  //     }
-  //   }
-  // }
+  while (listening) // wait until previous module sends message to determine input and output pins
+  {
+    if (Serial1.available() > 10)
+    {
+      in = UART_A;
+      out = UART_B;
+      listening = false;
+      Serial.println("Using UART_A as input");
+    }
+    else if (Serial2.available() > 10)
+    {
+      in = UART_B;
+      out = UART_A;
+      listening = false;
+      Serial.println("Using UART_B as input");
+    }
+    else
+    {
+      Serial.print(".");
+      delay(100);
+    }
+  }
 
-  // Serial1.end();
-  // Serial2.end();
+  Serial1.end();
+  Serial2.end();
+
+  Serial1.flush();
+
+  pinMode(in, INPUT);
+  pinMode(out, OUTPUT);
+
+  Serial1.setPins(in, out);
+  Serial1.begin(2000000);
+
+  serialTransfer.begin(Serial1);
+
+  uint16_t sendSize = 0;
+  sendSize = serialTransfer.txObj((uint8_t)200, sendSize);
+  sendSize = serialTransfer.txObj("Hello10Bytes", sendSize);
+
+  serialTransfer.sendData(sendSize);
 
   m1 = new ClockModule(0);
   m2 = new ClockModule(1);
   m3 = new ClockModule(2);
   m4 = new ClockModule(3);
-
-  // put your setup code here, to run once:
-  // clockSerial.onRecieve(handleMessage);
-  // clockSerial.begin(in, out, true);
-
-  serialTransfer.begin(Serial1);
-
-  // m1->hourStepper->setTargetPosition(720);
-  // m1->minuteStepper->setTargetPosition(720);
-
-  // m2->hourStepper->setTargetPosition(720);
-  // m2->minuteStepper->setTargetPosition(720);
-
-  // m3->hourStepper->setTargetPosition(720);
-  // m3->minuteStepper->setTargetPosition(720);
-
-  // m4->hourStepper->setTargetPosition(720);
-  // m4->minuteStepper->setTargetPosition(720);
 }
 
 void loop()
 {
-  // put your main code here, to run repeatedly:
-  // Serial.println("running");
-  // delay(1000);
-
-  // static bool flag = false;
-  // if (millis() > 10000 && !flag)
-  // {
-  //   m1->hourStepper->setTargetPosition(180);
-  //   // m1->minuteStepper->setTargetPosition(0);
-  //   flag = true;
-  // }
-
   m1->minuteStepper->handle();
   m1->hourStepper->handle();
 
@@ -132,38 +99,46 @@ void loop()
 
   if (serialTransfer.available())
   {
-    uint16_t buffer[8][3][2];
+    uint16_t buffer[24][2];
     uint16_t recSize = 0;
-    recSize = serialTransfer.rxObj(buffer, recSize);
+    uint8_t address;
+    recSize = serialTransfer.rxObj(address, recSize);
 
-    Serial.print(buffer[6][0][0]);
-    Serial.print(" ");
-    Serial.print(buffer[6][0][1]);
-    Serial.print(", ");
-    Serial.print(buffer[7][0][0]);
-    Serial.print(" ");
-    Serial.print(buffer[7][0][1]);
-    Serial.println();
+    if (address < 200)
+    {
+      recSize = serialTransfer.rxObj(buffer, recSize);
+
+      uint16_t sendSize = 0;
+      uint8_t sendAddress = address + 1;
+      sendSize = serialTransfer.txObj(sendAddress, sendSize);
+      sendSize = serialTransfer.txObj(buffer, sendSize);
+
+      serialTransfer.sendData(sendSize);
+
+      Serial.println("Address: " + String(address));
+
+      Serial.print("Buffer: [");
+      for (int i = 0; i < 24; i++)
+      {
+        Serial.print("[" + String(buffer[i][0] / 2) + ", " + String(buffer[i][1] / 2) + "], ");
+      }
+      Serial.println("]");
+
+      uint8_t ofs = address * 4;
+
+      m1->hourStepper->setTargetPosition(buffer[ofs][0]);
+      m1->minuteStepper->setTargetPosition(buffer[ofs][1]);
+
+      m2->hourStepper->setTargetPosition(buffer[ofs + 1][0]);
+      m2->minuteStepper->setTargetPosition(buffer[ofs + 1][1]);
+
+      m3->hourStepper->setTargetPosition(buffer[ofs + 2][0]);
+      m3->minuteStepper->setTargetPosition(buffer[ofs + 2][1]);
+
+      m4->hourStepper->setTargetPosition(buffer[ofs + 3][0]);
+      m4->minuteStepper->setTargetPosition(buffer[ofs + 3][1]);
+    }
   }
-
-  // for (double i = 0; i < PI * 2; i += PI / 16)
-  // {
-  //   double sineA = sin(i);
-  //   uint8_t raiseA = sineA <= 0 ? 1 : 0;
-  //   analogWrite(M1_B3, (sineA + raiseA) * 255);
-  //   digitalWrite(M1_B4, raiseA);
-  //   // analogWrite(M1_B1, (sineA + raiseA) * 255);
-  //   // digitalWrite(M1_B2, raiseA);
-
-  //   double sineB = sin(i + PI / 2);
-  //   uint8_t raiseB = sineB <= 0 ? 1 : 0;
-  //   analogWrite(M1_B1, (sineB + raiseB) * 255);
-  //   digitalWrite(M1_B2, raiseB);
-  //   // analogWrite(M1_B1, (sineB + raiseB) * 255);
-  //   // digitalWrite(M1_B2, raiseB);
-
-  //   delayMicroseconds(100);
-  // }
 }
 
 // void handleMessage(Data *data)
