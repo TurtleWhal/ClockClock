@@ -124,8 +124,8 @@ void loop()
       {
         for (int j = 0; j < 3; j++)
         {
-          buffer[i][j][0] = 0;
-          buffer[i][j][1] = 0;
+          buffer[i][j][0] = 90;
+          buffer[i][j][1] = 90;
         }
       }
 
@@ -134,12 +134,14 @@ void loop()
     break;
   }
 
-  Serial.println(WiFi.isConnected());
+  // Serial.println(WiFi.isConnected());
+  Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
+  Serial.printf("Max allocatable block: %d\n", ESP.getMaxAllocHeap());
 
   // modeChanged = false;
   modeChanged = true;
-  delay(1000);
-  // vTaskDelay(1000 / portTICK_PERIOD_MS);
+  // delay(1000);
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 
 File firmwareFile;
@@ -254,8 +256,14 @@ void writeBuffer()
   {
     for (int i = 0; i < 8; i++)
     {
-      clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 0, buffer[i][j][0] * DEG_TO_STEPS));
-      clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 1, buffer[i][j][1] * DEG_TO_STEPS));
+      // clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 0, buffer[i][j][0] * DEG_TO_STEPS));
+      // clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 1, buffer[i][j][1] * DEG_TO_STEPS));
+      Data *bottom = new Data(moduleMap[i][j][0], moduleMap[i][j][1], 0, buffer[i][j][0] * DEG_TO_STEPS);
+      Data *top = new Data(moduleMap[i][j][0], moduleMap[i][j][1], 1, buffer[i][j][1] * DEG_TO_STEPS);
+      clockSerial.send(bottom);
+      clockSerial.send(top);
+      free(bottom);
+      free(top);
     }
   }
 
