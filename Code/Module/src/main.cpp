@@ -1,78 +1,84 @@
 #include <Arduino.h>
-#include "ClockSerial.h"
+// #include "ClockSerial.h"
 #include "ClockModule.h"
+#include "SerialTransfer.h"
 
-ClockSerial clockSerial = ClockSerial();
+// ClockSerial clockSerial = ClockSerial();
 
 ClockModule *m1;
 ClockModule *m2;
 ClockModule *m3;
 ClockModule *m4;
 
-void handleMessage(Data *data);
+SerialTransfer serialTransfer;
+
+// void handleMessage(Data *data);
 
 void setup()
 {
   // Serial
   Serial.begin(115200);
-  Serial.setTxTimeoutMs(0);
   Serial.println("Helooo");
 
   delay(1000);
 
   int in = 0, out = 0;
 
+  // pinMode(UART_A, INPUT);
+  // pinMode(UART_B, INPUT);
   pinMode(UART_A, INPUT);
-  pinMode(UART_B, INPUT);
+  pinMode(UART_B, OUTPUT);
 
-  Serial1.setPins(UART_A, 26); // pin 26 is one of the headers because it is the only unused pin
-  Serial2.setPins(UART_B, 26);
+  // Serial1.setPins(UART_A, 26); // pin 26 is one of the headers because it is the only unused pin
+  // Serial2.setPins(UART_B, 26);
 
-  Serial1.begin(9600);
-  Serial2.begin(9600);
+  Serial1.setPins(UART_A, UART_B);
 
-  Serial.println("Listening for input pins");
+  Serial1.begin(2000000);
+  // Serial2.begin(9600);
 
-  bool listening = true;
+  // Serial.println("Listening for input pins");
 
-  while (listening) // wait until previous module sends message to determine input and output pins
-  {
-    // Serial.println(Serial1.read());
-    Serial.print(".");
-    delay(100);
+  // bool listening = true;
 
-    if (Serial1.available())
-    {
-      // Serial1.read(); // clear input because for some reason the first message is garbage
-      int msg = Serial1.read();
-      Serial.println();
-      Serial.println("Serial1 available: " + String(msg, 16));
-      if (msg == INIT_MSG)
-      {
-        in = UART_A;
-        out = UART_B;
-        listening = false;
-        Serial.println("Using UART_A as input");
-      }
-    }
-    else if (Serial2.available())
-    {
-      // Serial2.read(); // clear input because for some reason the first message is garbage
-      int msg = Serial2.read();
-      Serial.println();
-      Serial.println("Serial2 available: " + String(msg, 16));
-      if (msg == INIT_MSG)
-      {
-        in = UART_B;
-        out = UART_A;
-        listening = false;
-        Serial.println("Using UART_B as input");
-      }
-    }
-  }
+  // while (listening) // wait until previous module sends message to determine input and output pins
+  // {
+  //   // Serial.println(Serial1.read());
+  //   Serial.print(".");
+  //   delay(100);
 
-  Serial1.end();
-  Serial2.end();
+  //   if (Serial1.available())
+  //   {
+  //     // Serial1.read(); // clear input because for some reason the first message is garbage
+  //     int msg = Serial1.read();
+  //     Serial.println();
+  //     Serial.println("Serial1 available: " + String(msg, 16));
+  //     if (msg == INIT_MSG)
+  //     {
+  //       in = UART_A;
+  //       out = UART_B;
+  //       listening = false;
+  //       Serial.println("Using UART_A as input");
+  //     }
+  //   }
+  //   else if (Serial2.available())
+  //   {
+  //     // Serial2.read(); // clear input because for some reason the first message is garbage
+  //     int msg = Serial2.read();
+  //     Serial.println();
+  //     Serial.println("Serial2 available: " + String(msg, 16));
+  //     if (msg == INIT_MSG)
+  //     {
+  //       in = UART_B;
+  //       out = UART_A;
+  //       listening = false;
+  //       Serial.println("Using UART_B as input");
+  //     }
+  //   }
+  // }
+
+  // Serial1.end();
+  // Serial2.end();
 
   m1 = new ClockModule(0);
   m2 = new ClockModule(1);
@@ -80,8 +86,10 @@ void setup()
   m4 = new ClockModule(3);
 
   // put your setup code here, to run once:
-  clockSerial.onRecieve(handleMessage);
-  clockSerial.begin(in, out, true);
+  // clockSerial.onRecieve(handleMessage);
+  // clockSerial.begin(in, out, true);
+
+  serialTransfer.begin(Serial1);
 
   // m1->hourStepper->setTargetPosition(720);
   // m1->minuteStepper->setTargetPosition(720);
@@ -122,6 +130,22 @@ void loop()
   m4->minuteStepper->handle();
   m4->hourStepper->handle();
 
+  if (serialTransfer.available())
+  {
+    uint16_t buffer[8][3][2];
+    uint16_t recSize = 0;
+    recSize = serialTransfer.rxObj(buffer, recSize);
+
+    Serial.print(buffer[6][0][0]);
+    Serial.print(" ");
+    Serial.print(buffer[6][0][1]);
+    Serial.print(", ");
+    Serial.print(buffer[7][0][0]);
+    Serial.print(" ");
+    Serial.print(buffer[7][0][1]);
+    Serial.println();
+  }
+
   // for (double i = 0; i < PI * 2; i += PI / 16)
   // {
   //   double sineA = sin(i);
@@ -142,49 +166,49 @@ void loop()
   // }
 }
 
-void handleMessage(Data *data)
-{
-  int address = data->getAddress();
-  // Serial.println(data->getData(), 2);
+// void handleMessage(Data *data)
+// {
+//   int address = data->getAddress();
+//   // Serial.println(data->getData(), 2);
 
-  if (address > 0)
-  {
-    data->setAddress(address - 1);
-    clockSerial.send(data);
-  }
-  else
-  {
-    // OMG A MESSAGE JUST FOR ME!!!
-    int face = data->getFace();
-    int hand = data->getHand();
-    int pos = data->getPos();
+//   if (address > 0)
+//   {
+//     data->setAddress(address - 1);
+//     clockSerial.send(data);
+//   }
+//   else
+//   {
+//     // OMG A MESSAGE JUST FOR ME!!!
+//     int face = data->getFace();
+//     int hand = data->getHand();
+//     int pos = data->getPos();
 
-    switch (face)
-    {
-    case 0:
-      if (hand == 0)
-        m1->minuteStepper->setTargetPosition(pos);
-      else
-        m1->hourStepper->setTargetPosition(pos);
-      break;
-    case 1:
-      if (hand == 0)
-        m2->minuteStepper->setTargetPosition(pos);
-      else
-        m2->hourStepper->setTargetPosition(pos);
-      break;
-    case 2:
-      if (hand == 0)
-        m3->minuteStepper->setTargetPosition(pos);
-      else
-        m3->hourStepper->setTargetPosition(pos);
-      break;
-    case 3:
-      if (hand == 0)
-        m4->minuteStepper->setTargetPosition(pos);
-      else
-        m4->hourStepper->setTargetPosition(pos);
-      break;
-    }
-  }
-}
+//     switch (face)
+//     {
+//     case 0:
+//       if (hand == 0)
+//         m1->minuteStepper->setTargetPosition(pos);
+//       else
+//         m1->hourStepper->setTargetPosition(pos);
+//       break;
+//     case 1:
+//       if (hand == 0)
+//         m2->minuteStepper->setTargetPosition(pos);
+//       else
+//         m2->hourStepper->setTargetPosition(pos);
+//       break;
+//     case 2:
+//       if (hand == 0)
+//         m3->minuteStepper->setTargetPosition(pos);
+//       else
+//         m3->hourStepper->setTargetPosition(pos);
+//       break;
+//     case 3:
+//       if (hand == 0)
+//         m4->minuteStepper->setTargetPosition(pos);
+//       else
+//         m4->hourStepper->setTargetPosition(pos);
+//       break;
+//     }
+//   }
+// }

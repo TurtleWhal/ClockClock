@@ -1,10 +1,12 @@
 #include <Arduino.h>
-#include "ClockSerial.h" // includes Data.h
+// #include "ClockSerial.h" // includes Data.h
 #include "pins.h"
 #include "Font.h"
 
 #include "EzTime.h"
 #include "ArduinoJson.h"
+
+#include "SerialTransfer.h"
 
 #include "SPIFFS.h"
 #include "WiFiManager.h"
@@ -14,9 +16,10 @@ WiFiManager wm;
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
-ClockSerial clockSerial;
+// ClockSerial clockSerial;
+SerialTransfer serialTransfer;
 
-void handleMessage(Data *data);
+// void handleMessage(Data *data);
 void writeBuffer();
 void drawChar(uint8_t num, int x, int y);
 void drawTime();
@@ -93,8 +96,14 @@ void setup()
   server.begin();
 
   // start clock serial communication
-  clockSerial.onRecieve(handleMessage);
-  clockSerial.begin(IC1, UART_A, true);
+  // clockSerial.onRecieve(handleMessage);
+  // clockSerial.begin(IC1, UART_A, true);
+
+  Serial1.setPins(IC1, UART_A);
+  Serial1.begin(2000000);
+
+  serialTransfer.begin(Serial1);
+  // serialTransfer.begin(Serial1);
 }
 
 bool modeChanged = true;
@@ -135,13 +144,13 @@ void loop()
   }
 
   // Serial.println(WiFi.isConnected());
-  Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
-  Serial.printf("Max allocatable block: %d\n", ESP.getMaxAllocHeap());
+  // Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
+  // Serial.printf("Max allocatable block: %d\n", ESP.getMaxAllocHeap());
 
   // modeChanged = false;
   modeChanged = true;
-  // delay(1000);
-  vTaskDelay(1000 / portTICK_PERIOD_MS);
+  delay(5000);
+  // vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 
 File firmwareFile;
@@ -244,28 +253,46 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
   }
 }
 
-void handleMessage(Data *data)
-{
-  // Serial.println("Message received");
-}
+// void handleMessage(Data *data)
+// {
+//   // Serial.println("Message received");
+// }
 
 void writeBuffer()
 {
+  uint16_t sendSize = 0;
+
+  sendSize = serialTransfer.txObj(buffer, sendSize);
+  // sendSize = serialTransfer.txObj(0x0123456789ABCDEF, sendSize);
+
+  Serial.println("sendSize: " + String(sendSize));
+  serialTransfer.sendData(sendSize);
+  Serial.println("sent");
+
+  Serial.print(buffer[6][0][0]);
+  Serial.print(" ");
+  Serial.print(buffer[6][0][1]);
+  Serial.print(", ");
+  Serial.print(buffer[7][0][0]);
+  Serial.print(" ");
+  Serial.print(buffer[7][0][1]);
+  Serial.println();
+
   // send to all modules
-  for (int j = 0; j < 3; j++)
-  {
-    for (int i = 0; i < 8; i++)
-    {
-      // clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 0, buffer[i][j][0] * DEG_TO_STEPS));
-      // clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 1, buffer[i][j][1] * DEG_TO_STEPS));
-      Data *bottom = new Data(moduleMap[i][j][0], moduleMap[i][j][1], 0, buffer[i][j][0] * DEG_TO_STEPS);
-      Data *top = new Data(moduleMap[i][j][0], moduleMap[i][j][1], 1, buffer[i][j][1] * DEG_TO_STEPS);
-      clockSerial.send(bottom);
-      clockSerial.send(top);
-      free(bottom);
-      free(top);
-    }
-  }
+  // for (int j = 0; j < 3; j++)
+  // {
+  //   for (int i = 0; i < 8; i++)
+  //   {
+  // clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 0, buffer[i][j][0] * DEG_TO_STEPS));
+  // clockSerial.send(new Data(moduleMap[i][j][0], moduleMap[i][j][1], 1, buffer[i][j][1] * DEG_TO_STEPS));
+  // Data *bottom = new Data(moduleMap[i][j][0], moduleMap[i][j][1], 0, buffer[i][j][0] * DEG_TO_STEPS);
+  // Data *top = new Data(moduleMap[i][j][0], moduleMap[i][j][1], 1, buffer[i][j][1] * DEG_TO_STEPS);
+  // clockSerial.send(bottom);
+  // clockSerial.send(top);
+  // free(bottom);
+  // free(top);
+  //   }
+  // }
 
   // send to webpage
   String jsonString = "{ \"buffer\": [";
