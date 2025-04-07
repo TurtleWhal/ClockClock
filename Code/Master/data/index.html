@@ -14,7 +14,7 @@
   <canvas id="canvas"></canvas>
 
   <p>Mode:
-    <select onchange="websocket.send(JSON.stringify({'type': 'mode', 'mode': this.value}));">
+    <select id="mode" onchange="websocket.send(JSON.stringify({'type': 'mode', 'mode': this.value}));">
       <option value="time">Time</option>
       <!-- <option value="text">Text</option> -->
       <option value="clear">Clear</option>
@@ -24,16 +24,26 @@
     <input type="text" id="text" oninput="websocket.send(JSON.stringify({'type': 'text', 'text': this.value}));">
   </p> -->
 
-  <!-- <p>Upload Firmware for Modules: <br>
-    <input type="file" id="fileInput" accept=".bin">
+  <p>Upload Firmware for Modules: <br>
+    <input type="file" id="fileInput" accept=".bin" style="padding-top: 7px; padding-bottom: 7px;">
     <button id="uploadButton" onclick="uploadFile()">Upload</button>
-  </p> -->
-  <p>Upload Firmware for Modules:<br>
+    <button id="sendButton" onclick="websocket.send(JSON.stringify({'type': 'install'}));" disabled style="opacity: 80%; cursor: default;">Send to
+      Modules</button>
+  </p>
+  <!-- <p>Upload Firmware for Modules:<br>
   <form action="/upload" method="post" enctype="multipart/form-data">
     <input type="file" name="file" accept=".bin">
     <input type="submit" value="Upload">
   </form>
-  </p>
+  </p> -->
+
+  <div id="uploadStatus"
+    style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: none;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white;">
+      <h2 id="uploadMessage">Uploading Firmware...</h2>
+      <p id="uploadProgress">0%</p>
+    </div>
+  </div>
 
   <script>
     var hands = [];
@@ -57,7 +67,6 @@
     function initWebSocket() {
       var gateway = `ws://${window.location.hostname || 'clockclock'}/ws`;
       websocket = new WebSocket(gateway);
-      websocket.binaryType = 'arraybuffer';  // Important: Set WebSocket to handle binary data
       websocket.onopen = onOpen;
       websocket.onclose = onClose;
       websocket.onmessage = onMessage;
@@ -71,28 +80,74 @@
     function onClose(event) {
       console.log('Connection closed');
       document.getElementById("status").innerHTML = "Not Connected";
-      setTimeout(initWebSocket, 10000);  // Try to reconnect after 10 seconds
+      setTimeout(initWebSocket, 1000);  // Try to reconnect after 10 seconds
     }
 
     function onMessage(event) {
-      hands = JSON.parse(event.data)["buffer"];
-      console.log(hands);
-      draw();
+      var json = JSON.parse(event.data);
+      if (json["type"] == "status") {
+        document.getElementById("mode").value = json["mode"];
+        if (json["hasFirmware"]) {
+          document.getElementById("sendButton").disabled = false;
+          document.getElementById("sendButton").style.opacity = "100%";
+          document.getElementById("sendButton").style.cursor = "pointer";
+        } else {
+          document.getElementById("sendButton").disabled = true;
+          document.getElementById("sendButton").style.opacity = "80%";
+          document.getElementById("sendButton").style.cursor = "default";
+        }
+      } else if (json["type"] == "hands") {
+        hands = json["hands"];
+        console.log(hands);
+        draw();
+      } else if (json["type"] == "firmwareUpdate") {
+        uploadStatus.style.display = 'block';
+        uploadMessage.innerHTML = 'Installing Firmware...';
+        uploadProgress.innerHTML = json["progress"] + '%';
+
+        if (json["progress"] == 100) {
+          uploadStatus.style.display = 'none';
+          alert('Firmware installed successfully');
+        }
+      }
     }
 
-    // function uploadFile() {
-    //   const fileInput = document.getElementById('fileInput');
+    function uploadFile() {
+      const fileInput = document.getElementById('fileInput');
 
-    //   if (fileInput.files.length > 0) {
-    //     const file = fileInput.files[0];
+      if (fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        const uploadStatus = document.getElementById('uploadStatus');
+        const uploadMessage = document.getElementById('uploadMessage');
+        const uploadProgress = document.getElementById('uploadProgress');
 
+        uploadStatus.style.display = 'block';
+        uploadMessage.innerHTML = 'Uploading Firmware...';
+        uploadProgress.innerHTML = '0%';
 
+        fetch('/upload', {
+          method: 'POST',
+          body: file,
+          headers: {
+            'Content-Type': 'application/octet-stream'
+          }
+        }).then(response => {
+          const total = parseInt(response.headers.get('Content-Length'));
+          let uploaded = 0;
 
-    //     reader.readAsArrayBuffer(file);
-    //   } else {
-    //     alert('No file selected');
-    //   }
-    // }
+          response.body.on('data', (chunk) => {
+            uploaded += chunk.length;
+            const progress = Math.round(uploaded / total * 100);
+            uploadProgress.innerHTML = `${progress}%`;
+          });
+
+          alert('File uploaded successfully');
+          uploadStatus.style.display = 'none';
+        })
+      } else {
+        alert('No file selected');
+      }
+    }
 
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');

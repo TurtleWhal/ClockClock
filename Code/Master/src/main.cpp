@@ -23,7 +23,6 @@ void drawTime();
 void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
              void *arg, uint8_t *data, size_t len);
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
-String listFiles(bool ishtml);
 
 void sendFile(String filename);
 
@@ -70,8 +69,6 @@ void setup()
     Serial.println("An Error has occurred while mounting SPIFFS");
     return;
   }
-
-  Serial.println(listFiles(false));
 
   // Initialize WiFi
   wm.setDarkMode(true);
@@ -205,7 +202,7 @@ void writeBuffer()
   }
 
   // send to webpage
-  String jsonString = "{ \"buffer\": [";
+  String jsonString = "{ \"type\": \"hands\", \"hands\": [";
 
   for (int i = 0; i < 8; i++)
   {
@@ -230,6 +227,26 @@ void writeBuffer()
   jsonString += "] }";
 
   // Send the constructed JSON string over WebSocket to all connected clients
+  ws.textAll(jsonString);
+}
+
+void sendStatus()
+{
+  String modeName;
+  switch (mode)
+  {
+  case MODE_TIME:
+    modeName = "time";
+    break;
+  case MODE_CUSTOM:
+    modeName = "custom";
+    break;
+  case MODE_CLEAR:
+    modeName = "clear";
+    break;
+  }
+  // Send the constructed JSON string over WebSocket to all connected clients
+  String jsonString = "{ \"type\": \"status\", \"mode\": \"" + modeName + "\", \"hasFirmware\": " + (SPIFFS.exists("/firmware.bin") ? "true" : "false") + " }";
   ws.textAll(jsonString);
 }
 
@@ -311,12 +328,13 @@ void sendFile(String filename)
 
     serialTransfer.sendData(sendSize, 1); // Send the current file index and data
     Serial.println("Sending Packet: " + String(i) + " of " + String(numPackets) + " with size: " + String(dataLen) + " bytes");
+    ws.textAll("{ \"type\": \"firmwareUpdate\", \"progress\": " + String((i + 1) * 100 / numPackets) + " }");
     delay(5);
   }
 
   address = 202;
   uint8_t sendSize = 0;
-  sendSize = serialTransfer.txObj(address, sendSize);                  // Stuff the current file index
+  sendSize = serialTransfer.txObj(address, sendSize); // Stuff the current file index
 
   serialTransfer.sendData(sendSize, 2); // Send the current file index and data
 }
@@ -352,6 +370,14 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         mode = MODE_CLEAR;
 
       modeChanged = true;
+
+      sendStatus();
+    }
+    else if (type == "firmware")
+    {
+      Serial.println("Installing firmware on modules");
+      uploadingFirmware = true;
+      // sendFile("firmware.bin");
     }
   }
 }
@@ -363,6 +389,7 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
   {
   case WS_EVT_CONNECT:
     Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+    sendStatus();
     break;
   case WS_EVT_DISCONNECT:
     Serial.printf("WebSocket client #%u disconnected\n", client->id());
@@ -379,6 +406,7 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
 // handles uploads
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final)
 {
+  filename = "firmware.bin";
   String logmessage = "Client:" + request->client()->remoteIP().toString() + " " + request->url();
 
   if (!index)
@@ -407,53 +435,9 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
     Serial.println(logmessage);
     request->redirect("/");
 
+    sendStatus();
+
     // sendFile(filename);
-    uploadingFirmware = true;
+    // uploadingFirmware = true;
   }
-}
-
-// Make size of files human readable
-// source: https://github.com/CelliesProjects/minimalUploadAuthESP32
-String humanReadableSize(const size_t bytes)
-{
-  if (bytes < 1024)
-    return String(bytes) + " B";
-  else if (bytes < (1024 * 1024))
-    return String(bytes / 1024.0) + " KB";
-  else if (bytes < (1024 * 1024 * 1024))
-    return String(bytes / 1024.0 / 1024.0) + " MB";
-  else
-    return String(bytes / 1024.0 / 1024.0 / 1024.0) + " GB";
-}
-
-// list all of the files, if ishtml=true, return html rather than simple text
-String listFiles(bool ishtml)
-{
-  String returnText = "";
-  Serial.println("Listing files stored on SPIFFS");
-  File root = SPIFFS.open("/");
-  File foundfile = root.openNextFile();
-  if (ishtml)
-  {
-    returnText += "<table><tr><th align='left'>Name</th><th align='left'>Size</th></tr>";
-  }
-  while (foundfile)
-  {
-    if (ishtml)
-    {
-      returnText += "<tr align='left'><td>" + String(foundfile.name()) + "</td><td>" + humanReadableSize(foundfile.size()) + "</td></tr>";
-    }
-    else
-    {
-      returnText += "File: " + String(foundfile.name()) + "\n";
-    }
-    foundfile = root.openNextFile();
-  }
-  if (ishtml)
-  {
-    returnText += "</table>";
-  }
-  root.close();
-  foundfile.close();
-  return returnText;
 }
