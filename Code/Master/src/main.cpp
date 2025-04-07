@@ -22,6 +22,10 @@ void drawChar(uint8_t num, int x, int y);
 void drawTime();
 void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
              void *arg, uint8_t *data, size_t len);
+void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
+String listFiles(bool ishtml);
+
+void sendFile(String filename);
 
 #define WIDTH 8
 #define HEIGHT 3
@@ -52,6 +56,8 @@ uint8_t moduleMap[8][3][2] = {
 
 Timezone myTZ;
 
+bool uploadingFirmware = false;
+
 void setup()
 {
   // USB Serial
@@ -64,6 +70,8 @@ void setup()
     Serial.println("An Error has occurred while mounting SPIFFS");
     return;
   }
+
+  Serial.println(listFiles(false));
 
   // Initialize WiFi
   wm.setDarkMode(true);
@@ -90,6 +98,14 @@ void setup()
   server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/style.css", "text/css"); });
 
+  // run handleUpload function when any file is uploaded
+  server.on("/upload", HTTP_POST, [](AsyncWebServerRequest *request)
+            { request->send(200); }, handleUpload);
+
+  // // run handleUpload function when any file is uploaded
+  // server.on("/upload", HTTP_GET, [](AsyncWebServerRequest *request)
+  //           { request->send(200, "text/html", listFiles(true)); });
+
   // Start webserver
   ws.onEvent(onEvent);
   server.addHandler(&ws);
@@ -97,7 +113,7 @@ void setup()
   server.begin();
 
   Serial1.setPins(IC1, UART_A);
-  Serial1.begin(2000000);
+  Serial1.begin(1000000);
 
   serialTransfer.begin(Serial1);
 }
@@ -107,6 +123,14 @@ int lastMinute = -1;
 
 void loop()
 {
+
+  if (uploadingFirmware)
+  {
+    Serial.println("Uploading firmware");
+    sendFile("firmware.bin");
+    uploadingFirmware = false;
+  }
+
   switch (mode)
   {
   case MODE_TIME:
@@ -149,132 +173,36 @@ void loop()
   // vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 
-File firmwareFile;
-size_t totalReceived = 0;
-size_t firmwareSize = 0;
-
-void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
-{
-  AwsFrameInfo *info = (AwsFrameInfo *)arg;
-
-  // Handle the initial JSON message to start the firmware upload
-  if (info->index == 0 && info->opcode == WS_TEXT)
-  {
-    data[len] = 0;
-    JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, data);
-
-    if (error)
-    {
-      Serial.println("Failed to parse JSON");
-      return;
-    }
-
-    String type = doc["type"];
-    if (type == "firmware")
-    {
-      firmwareSize = doc["size"]; // Get the firmware size from JSON
-      totalReceived = 0;
-
-      // Open the firmware file for writing
-      firmwareFile = SPIFFS.open("/firmware.bin", FILE_WRITE);
-      if (!firmwareFile)
-      {
-        Serial.println("Failed to open file for writing");
-        return;
-      }
-
-      Serial.println("Firmware upload initiated");
-    }
-    else if (type == "mode")
-    {
-      String newmode = doc["mode"];
-      Serial.printf("Mode: %s\n", newmode.c_str());
-
-      if (newmode == "time")
-        mode = MODE_TIME;
-      else if (newmode == "custom")
-        mode = MODE_CUSTOM;
-      else if (newmode == "clear")
-        mode = MODE_CLEAR;
-
-      modeChanged = true;
-    }
-  }
-
-  // Handle the binary data (firmware) chunks
-  if (info->opcode == WS_BINARY && firmwareFile)
-  {
-    // Write the received binary chunk to the file
-    firmwareFile.write(data, len);
-    totalReceived += len;
-
-    Serial.printf("Received %d/%d bytes\n", totalReceived, firmwareSize);
-  }
-
-  // Close the file and complete the upload when the transmission is finished
-  if (info->final && firmwareFile)
-  {
-    firmwareFile.close();
-    Serial.println("Firmware upload completed");
-
-    if (totalReceived == firmwareSize)
-    {
-      Serial.println("Firmware file written successfully.");
-    }
-    else
-    {
-      Serial.println("Warning: Firmware size mismatch!");
-    }
-  }
-}
-
-void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
-             void *arg, uint8_t *data, size_t len)
-{
-  switch (type)
-  {
-  case WS_EVT_CONNECT:
-    Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
-    break;
-  case WS_EVT_DISCONNECT:
-    Serial.printf("WebSocket client #%u disconnected\n", client->id());
-    break;
-  case WS_EVT_DATA:
-    handleWebSocketMessage(arg, data, len);
-    break;
-  case WS_EVT_PONG:
-  case WS_EVT_ERROR:
-    break;
-  }
-}
-
 void writeBuffer()
 {
   Serial.println("Sending Buffer");
 
-  uint16_t sendBuffer[CLOCKS][2];
-
-  // convert the x-y buffer array to a linear array for sending to modules arranged in a Z format
-  for (int i = 0; i < MODULES; i++)
+  if (!uploadingFirmware)
   {
-    int row = i / (WIDTH / 4);
-    int column = (row % 2 == 0) ? (i % (WIDTH / 4)) : ((WIDTH / 4) - 1) - (i % (WIDTH / 4)); // if row is odd invert columns
 
-    for (int j = 0; j < 4; j++)
+    uint16_t sendBuffer[CLOCKS][2];
+
+    // convert the x-y buffer array to a linear array for sending to modules arranged in a Z format
+    for (int i = 0; i < MODULES; i++)
     {
-      sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0] * 2;
-      sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1] * 2;
+      int row = i / (WIDTH / 4);
+      int column = (row % 2 == 0) ? (i % (WIDTH / 4)) : ((WIDTH / 4) - 1) - (i % (WIDTH / 4)); // if row is odd invert columns
+
+      for (int j = 0; j < 4; j++)
+      {
+        sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0] * 2;
+        sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1] * 2;
+      }
     }
+
+    uint16_t sendSize = 0;
+
+    uint8_t address = 0;
+    sendSize = serialTransfer.txObj(address, sendSize);
+    sendSize = serialTransfer.txObj(sendBuffer, sendSize);
+
+    serialTransfer.sendData(sendSize);
   }
-
-  uint16_t sendSize = 0;
-
-  uint8_t address = 3;
-  sendSize = serialTransfer.txObj(address, sendSize);
-  sendSize = serialTransfer.txObj(sendBuffer, sendSize);
-
-  serialTransfer.sendData(sendSize);
 
   // send to webpage
   String jsonString = "{ \"buffer\": [";
@@ -338,4 +266,194 @@ void drawTime()
   drawChar(hour % 10, 2, 0);
   drawChar(minute / 10 % 10, 4, 0);
   drawChar(minute % 10, 6, 0);
+}
+
+void sendFile(String filename)
+{
+  // Send file to modules
+
+  uploadingFirmware = true;
+
+  Serial.println("Opening file: " + filename);
+
+  File firmware = SPIFFS.open("/" + filename, "r");
+
+  Serial.println("File size: " + String(firmware.size()) + " bytes");
+
+  char *data = new char[firmware.size()];
+  firmware.readBytes(data, firmware.size());
+
+  uint32_t fileSize = firmware.size();
+
+  uint16_t headerSize = 0;
+
+  uint8_t address = 201;
+  headerSize = serialTransfer.txObj(address, headerSize);
+  headerSize = serialTransfer.txObj(fileSize, headerSize);
+
+  serialTransfer.sendData(headerSize);
+
+  uint16_t numPackets = fileSize / (MAX_PACKET_SIZE - 2); // Reserve two bytes for current file index
+
+  if (fileSize % MAX_PACKET_SIZE) // Add an extra transmission if needed
+    numPackets++;
+
+  for (uint16_t i = 0; i < numPackets; i++) // Send all data within the file across multiple packets
+  {
+    uint8_t dataLen = MAX_PACKET_SIZE - 4;
+    uint32_t fileIndex = i * dataLen; // Determine the current file index
+
+    if ((fileIndex + (MAX_PACKET_SIZE - 4)) > fileSize) // Determine data length for the last packet if file length is not an exact multiple of MAX_PACKET_SIZE-2
+      dataLen = fileSize - fileIndex;
+
+    uint8_t sendSize = serialTransfer.txObj(fileIndex);                  // Stuff the current file index
+    sendSize = serialTransfer.txObj(data[fileIndex], sendSize, dataLen); // Stuff the current file data
+
+    serialTransfer.sendData(sendSize, 1); // Send the current file index and data
+    Serial.println("Sending Packet: " + String(i) + " of " + String(numPackets) + " with size: " + String(dataLen) + " bytes");
+    delay(5);
+  }
+
+  address = 202;
+  uint8_t sendSize = 0;
+  sendSize = serialTransfer.txObj(address, sendSize);                  // Stuff the current file index
+
+  serialTransfer.sendData(sendSize, 2); // Send the current file index and data
+}
+
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
+{
+  AwsFrameInfo *info = (AwsFrameInfo *)arg;
+
+  // Handle the initial JSON message to start the firmware upload
+  if (info->index == 0 && info->opcode == WS_TEXT)
+  {
+    data[len] = 0;
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, data);
+
+    if (error)
+    {
+      Serial.println("Failed to parse JSON");
+      return;
+    }
+
+    String type = doc["type"];
+    if (type == "mode")
+    {
+      String newmode = doc["mode"];
+      Serial.printf("Mode: %s\n", newmode.c_str());
+
+      if (newmode == "time")
+        mode = MODE_TIME;
+      else if (newmode == "custom")
+        mode = MODE_CUSTOM;
+      else if (newmode == "clear")
+        mode = MODE_CLEAR;
+
+      modeChanged = true;
+    }
+  }
+}
+
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
+             void *arg, uint8_t *data, size_t len)
+{
+  switch (type)
+  {
+  case WS_EVT_CONNECT:
+    Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+    break;
+  case WS_EVT_DISCONNECT:
+    Serial.printf("WebSocket client #%u disconnected\n", client->id());
+    break;
+  case WS_EVT_DATA:
+    handleWebSocketMessage(arg, data, len);
+    break;
+  case WS_EVT_PONG:
+  case WS_EVT_ERROR:
+    break;
+  }
+}
+
+// handles uploads
+void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final)
+{
+  String logmessage = "Client:" + request->client()->remoteIP().toString() + " " + request->url();
+
+  if (!index)
+  {
+    Serial.println(logmessage);
+
+    logmessage = "Upload Start: " + String(filename);
+    // open the file on first call and store the file handle in the request object
+    request->_tempFile = SPIFFS.open("/" + filename, "w");
+    Serial.println(logmessage);
+  }
+
+  if (len)
+  {
+    // stream the incoming chunk to the opened file
+    request->_tempFile.write(data, len);
+    logmessage = "Writing file: " + String(filename) + " index=" + String(index) + " len=" + String(len);
+    Serial.println(logmessage);
+  }
+
+  if (final)
+  {
+    logmessage = "Upload Complete: " + String(filename) + ",size: " + String(index + len);
+    // close the file handle as the upload is now done
+    request->_tempFile.close();
+    Serial.println(logmessage);
+    request->redirect("/");
+
+    // sendFile(filename);
+    uploadingFirmware = true;
+  }
+}
+
+// Make size of files human readable
+// source: https://github.com/CelliesProjects/minimalUploadAuthESP32
+String humanReadableSize(const size_t bytes)
+{
+  if (bytes < 1024)
+    return String(bytes) + " B";
+  else if (bytes < (1024 * 1024))
+    return String(bytes / 1024.0) + " KB";
+  else if (bytes < (1024 * 1024 * 1024))
+    return String(bytes / 1024.0 / 1024.0) + " MB";
+  else
+    return String(bytes / 1024.0 / 1024.0 / 1024.0) + " GB";
+}
+
+// list all of the files, if ishtml=true, return html rather than simple text
+String listFiles(bool ishtml)
+{
+  String returnText = "";
+  Serial.println("Listing files stored on SPIFFS");
+  File root = SPIFFS.open("/");
+  File foundfile = root.openNextFile();
+  if (ishtml)
+  {
+    returnText += "<table><tr><th align='left'>Name</th><th align='left'>Size</th></tr>";
+  }
+  while (foundfile)
+  {
+    if (ishtml)
+    {
+      returnText += "<tr align='left'><td>" + String(foundfile.name()) + "</td><td>" + humanReadableSize(foundfile.size()) + "</td></tr>";
+    }
+    else
+    {
+      returnText += "File: " + String(foundfile.name()) + "\n";
+    }
+    foundfile = root.openNextFile();
+  }
+  if (ishtml)
+  {
+    returnText += "</table>";
+  }
+  root.close();
+  foundfile.close();
+  return returnText;
 }

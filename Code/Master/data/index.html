@@ -24,9 +24,15 @@
     <input type="text" id="text" oninput="websocket.send(JSON.stringify({'type': 'text', 'text': this.value}));">
   </p> -->
 
-  <p>Upload Firmware for Modules: <br>
+  <!-- <p>Upload Firmware for Modules: <br>
     <input type="file" id="fileInput" accept=".bin">
     <button id="uploadButton" onclick="uploadFile()">Upload</button>
+  </p> -->
+  <p>Upload Firmware for Modules:<br>
+  <form action="/upload" method="post" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".bin">
+    <input type="submit" value="Upload">
+  </form>
   </p>
 
   <script>
@@ -36,7 +42,7 @@
     for (let i = 0; i < 8; i++) {
       hands[i] = [];
       for (let j = 0; j < 3; j++) {
-        hands[i][j] = [step * (i+1), 360 - step * (i + 1)];
+        hands[i][j] = [step * (i + 1), 360 - step * (i + 1)];
       }
     }
 
@@ -74,31 +80,19 @@
       draw();
     }
 
-    function uploadFile() {
-      const fileInput = document.getElementById('fileInput');
+    // function uploadFile() {
+    //   const fileInput = document.getElementById('fileInput');
 
-      if (fileInput.files.length > 0) {
-        const file = fileInput.files[0];
-        const reader = new FileReader();
+    //   if (fileInput.files.length > 0) {
+    //     const file = fileInput.files[0];
 
-        reader.onload = function (e) {
-          const firmwareSize = file.size;
-          console.log("Starting firmware upload, size:", firmwareSize);
 
-          // First, send a JSON message to indicate the firmware upload is starting
-          websocket.send(JSON.stringify({ "type": "firmware", "size": firmwareSize }));
 
-          // Then, send the binary data as an ArrayBuffer
-          const arrayBuffer = e.target.result;
-          console.log(arrayBuffer);
-          websocket.send(arrayBuffer);  // Send the binary data directly
-        };
-
-        reader.readAsArrayBuffer(file);
-      } else {
-        alert('No file selected');
-      }
-    }
+    //     reader.readAsArrayBuffer(file);
+    //   } else {
+    //     alert('No file selected');
+    //   }
+    // }
 
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
