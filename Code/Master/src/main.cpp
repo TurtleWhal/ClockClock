@@ -193,7 +193,6 @@ void writeBuffer()
     }
 
     uint16_t sendSize = 0;
-
     uint8_t address = 0;
     sendSize = serialTransfer.txObj(address, sendSize);
     sendSize = serialTransfer.txObj(sendBuffer, sendSize);
@@ -292,18 +291,15 @@ void sendFile(String filename)
   uploadingFirmware = true;
 
   Serial.println("Opening file: " + filename);
-
   File firmware = SPIFFS.open("/" + filename, "r");
-
   Serial.println("File size: " + String(firmware.size()) + " bytes");
-
   char *data = new char[firmware.size()];
   firmware.readBytes(data, firmware.size());
 
   uint32_t fileSize = firmware.size();
 
   uint16_t headerSize = 0;
-
+  
   uint8_t address = 201;
   headerSize = serialTransfer.txObj(address, headerSize);
   headerSize = serialTransfer.txObj(fileSize, headerSize);
@@ -312,17 +308,17 @@ void sendFile(String filename)
 
   //delay(1000);
 
-  uint16_t numPackets = fileSize / (MAX_PACKET_SIZE - 4); // Reserve two bytes for current file index
+  uint8_t dataLen = MAX_PACKET_SIZE - 4;
+  uint16_t numPackets = fileSize / dataLen; // Reserve two bytes for current file index
 
-  if (fileSize % MAX_PACKET_SIZE) // Add an extra transmission if needed
+  if (fileSize % dataLen) // Add an extra transmission if needed
     numPackets++;
 
   for (uint16_t i = 0; i < numPackets; i++) // Send all data within the file across multiple packets
   {
-    uint8_t dataLen = MAX_PACKET_SIZE - 4;
     uint32_t fileIndex = i * dataLen; // Determine the current file index
 
-    if ((fileIndex + (MAX_PACKET_SIZE - 4)) > fileSize) // Determine data length for the last packet if file length is not an exact multiple of MAX_PACKET_SIZE-2
+    if ((fileIndex + dataLen) > fileSize) // Determine data length for the last packet if file length is not an exact multiple of MAX_PACKET_SIZE-2
       dataLen = fileSize - fileIndex;
 
     uint8_t sendSize = serialTransfer.txObj(fileIndex);                  // Stuff the current file index
@@ -334,7 +330,7 @@ void sendFile(String filename)
     if (i % 10 == 0)
       ws.textAll("{ \"type\": \"firmwareUpdate\", \"progress\": " + String((i + 1) * 100 / numPackets) + " }");
 
-    delay(5);
+    delay(5); //Needed to not overrun RX buffer
   }
 
   ws.textAll("{ \"type\": \"firmwareUpdate\", \"progress\": 100 }");
