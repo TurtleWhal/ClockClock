@@ -3,6 +3,7 @@
 #include "SerialTransfer.h"
 #include "SPIFFS.h"
 #include "Update.h"
+#include "version.h"
 
 #define BAUDRATE 2000000
 
@@ -18,14 +19,17 @@ SerialTransfer serialTransfer;
 #define BUFFER_SIZE (1024 * 1024) // 1MB buffer for FW updates
 uint8_t *largeBuffer;
 
-// QueueHandle_t packetQueue;
-
 void setup()
 {
   // Serial
   Serial.begin(1000000);
-  Serial.println("Helooo. I am V1.5");
-
+  Serial.print("Helooo. I am V");
+  Serial.print(VERSION_BUILD);
+  Serial.print(". I was built on ");
+  Serial.print(VERSION_DATE);
+  Serial.print(" at ");
+  Serial.println(VERSION_TIME);
+  
   log_d("Total heap: %d", ESP.getHeapSize());
   log_d("Free heap: %d", ESP.getFreeHeap());
   log_d("Total PSRAM: %d", ESP.getPsramSize());
@@ -34,14 +38,9 @@ void setup()
   log_d("Creating Buffer!");
 
   largeBuffer = (byte *)ps_malloc(BUFFER_SIZE); // For FW updates
-  //  for (int i = 0; i < BUFFER_SIZE; i++) {
-  //   largeBuffer[i] =  i % 256 ;
-  //  }
 
   log_d("Used PSRAM: %d", ESP.getPsramSize() - ESP.getFreePsram());
   log_d("Free PSRAM: %d", ESP.getFreePsram());
-
-  // packetQueue = xQueueCreate(256 * 50, sizeof(uint8_t));
 
   // Initialize SPIFFS
   if (!SPIFFS.begin(true))
@@ -54,8 +53,8 @@ void setup()
   pinMode(UART_A, INPUT_PULLDOWN);
   pinMode(UART_B, INPUT_PULLDOWN);
 
-  Serial1.setPins(UART_A, NULL); // No output pin, only RX
-  Serial2.setPins(UART_B, NULL);
+  Serial1.setPins(UART_A, M1_A1); // No output pin, only RX
+  Serial2.setPins(UART_B, M2_A1);
   Serial1.begin(BAUDRATE);
   Serial2.begin(BAUDRATE);
 
@@ -114,37 +113,6 @@ void setup()
   m2 = new ClockModule(1);
   m3 = new ClockModule(2);
   m4 = new ClockModule(3);
-
-  /* Print the stored file
-  Serial.println("- read from file:");
-  File file = SPIFFS.open("/firmware.bin", "r");
-  Serial.println("========================================================");
-  while (file.available())
-  {
-    Serial.write(file.read());
-  }
-  Serial.println("========================================================");
-  Serial.println("");
-  file.close();
-*/
-
-/* Compare stored files
-  Serial.println("COMPARE");
-  File filea = SPIFFS.open("/firmware.bin", "r");
-  File fileb = SPIFFS.open("/firmware.bak", "r");
-  for (int i = 0; i < filea.size(); i++)
-  {
-    if (filea.read() != fileb.read())
-    {
-      Serial.print("DIFFERENT at ");
-      Serial.println(i);
-      break;
-    }
-  }
-  Serial.println("DONE");
-  filea.close();
-  fileb.close();
-  */
 }
 
 bool firmwareUpdate = false;
@@ -162,109 +130,54 @@ void loop()
       uint32_t byte;
       recSize = serialTransfer.rxObj(byte, recSize);
 
-      // Serial.println("Recieved Byte " + String(byte));
-      // Serial.println(byte);
       // Firmware Update
       if (serialTransfer.currentPacketID() == 1)
       {
         for (uint8_t i = 4; i < serialTransfer.bytesRead; i++)
         {
-          // handle data
-          // Serial.print((char)serialTransfer.packet.rxBuff[i]);
-
-          //uint8_t data = serialTransfer.packet.rxBuff[i];
-          //Serial.write(data);
-
-          // Update.write(&data, 1);
           largeBuffer[recievedBytes] = serialTransfer.packet.rxBuff[i];
           recievedBytes++;
-
-          // packetQueue.send(&data, sizeof(data));
-          // xQueueGenericSend(packetQueue, &data, 0, queueSEND_TO_BACK);
-          // largeBuffer[byte + (i - 4)] = data;
-          // largeBuffer[recievedBytes++] = data;
-
-          // firmware.write(data);
-          // Serial.println("Writing: " + String(data));
         }
       }
-      else if (serialTransfer.currentPacketID() == 0)
-      {
-        Serial.println("Recieved firmware size: " + String(firmwareSize) + " bytes");
-        recievedBytes = 0;
-        // recSize = serialTransfer.rxObj(firmwareSize, recSize);
-        // firmware = SPIFFS.open("/firmware.bin", "w");
-        // Update.begin(firmwareSize);
-      }
+      //Never called as the 201 address packet handles this
+      // else if (serialTransfer.currentPacketID() == 0)
+      // {
+      //   Serial.println("Recieved firmware size: " + String(firmwareSize) + " bytes");
+      //   recievedBytes = 0;
+      // }
       else if (serialTransfer.currentPacketID() == 2)
       {
         firmwareUpdate = false;
         Serial.println("Firmware update complete, recieved " + String(recievedBytes) + " bytes");
 
-        
         Serial.println("Writing to SPIFFS");
         firmware = SPIFFS.open("/firmware.bin", "wb");
-
-        for (int i = 0; i < recievedBytes; i++){
-          //Serial.write(largeBuffer[i]);
+        for (int i = 0; i < recievedBytes; i++)
+        {
           firmware.write(largeBuffer[i]);
         }
         firmware.close();
         Serial.println("Done Writing to SPIFFS");
-        
-        
-        /*Serial.println("COMPARE");
-        File filea = SPIFFS.open("/firmware.bin", "r");
-        File fileb = SPIFFS.open("/firmware.bak", "r");
-        for (int i = 0; i < filea.size(); i++)
-        {
-          if (filea.read() != fileb.read())
-          {
-            Serial.print("DIFFERENT at ");
-            Serial.println(i);
-            break;
-          }
-        }
-        Serial.println("DONE");
-        filea.close();
-        fileb.close();
-*/
 
         Serial.println("Start Update");
-
         firmware = SPIFFS.open("/firmware.bin", "r");
-        
         Serial.println("File Size: " + String(firmware.size()));
-        
         Update.begin(firmware.size());
         Serial.println("Update Size: " + String(Update.writeStream(firmware)));
-        
-        // Update.end();
-        //  Serial1.onReceive(nullptr);
 
-        // Update.begin(firmwareSize);
-        // Update.writeStream(firmware);
+        if (Update.end())
+        {
+          Serial.println("Successful update");
+          Serial.flush();
+          ESP.restart();
+        }
+        else
+        {
+          Serial.println("Error Occurred: " + String(Update.getError()));
+          return;
+        }
 
-         if (Update.end())
-         {
-           Serial.println("Successful update");
-           Serial.flush();
-           ESP.restart();
-         }
-         else
-         {
-           Serial.println("Error Occurred: " + String(Update.getError()));
-           return;
-         }
-
-        // firmware.close();
-
-        // Serial.println("Reset in 4 seconds...");
-        // delay(4000);
-
-        // ESP.restart();
       }
-      // Serial.println();
     }
 
     return;
@@ -281,8 +194,6 @@ void loop()
 
   m4->minuteStepper->handle();
   m4->hourStepper->handle();
-
-  // Serial.println("LETS GO IT UPDATED OVER SERIAL YEEEEEY (V1.0)");
 
   if (serialTransfer.available())
   {
@@ -335,23 +246,9 @@ void loop()
       case 201:
         // start recieving new firmware
         firmwareUpdate = true;
+        recievedBytes = 0;
         serialTransfer.rxObj(firmwareSize, recSize);
-        // firmware = SPIFFS.open("/firmware.bin", "w");
         Serial.println("Recieved firmware size: " + String(firmwareSize) + " bytes");
-
-        Update.begin(firmwareSize);
-
-        // xTaskCreatePinnedToCore(
-        //     firmwareUpdateTask,
-        //     "FirmwareUpdateTask",
-        //     8192,
-        //     NULL,
-        //     0,
-        //     NULL,
-        //     0);
-
-        // Serial1.onReceive([]()
-        //                   { Serial1.write(Serial1.read()); });
         break;
       }
     }
