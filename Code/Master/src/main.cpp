@@ -310,9 +310,9 @@ void sendFile(String filename)
 
   serialTransfer.sendData(headerSize);
 
-  delay(1000);
+  //delay(1000);
 
-  uint16_t numPackets = fileSize / (MAX_PACKET_SIZE - 2); // Reserve two bytes for current file index
+  uint16_t numPackets = fileSize / (MAX_PACKET_SIZE - 4); // Reserve two bytes for current file index
 
   if (fileSize % MAX_PACKET_SIZE) // Add an extra transmission if needed
     numPackets++;

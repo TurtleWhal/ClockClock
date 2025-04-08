@@ -24,7 +24,7 @@ void setup()
 {
   // Serial
   Serial.begin(1000000);
-  Serial.println("Helooo. I am V1.0");
+  Serial.println("Helooo. I am V1.5");
 
   log_d("Total heap: %d", ESP.getHeapSize());
   log_d("Free heap: %d", ESP.getFreeHeap());
@@ -201,7 +201,7 @@ void loop()
         firmwareUpdate = false;
         Serial.println("Firmware update complete, recieved " + String(recievedBytes) + " bytes");
 
-        /*
+        
         Serial.println("Writing to SPIFFS");
         firmware = SPIFFS.open("/firmware.bin", "wb");
 
@@ -211,7 +211,7 @@ void loop()
         }
         firmware.close();
         Serial.println("Done Writing to SPIFFS");
-        */
+        
         
         /*Serial.println("COMPARE");
         File filea = SPIFFS.open("/firmware.bin", "r");
@@ -237,9 +237,8 @@ void loop()
         Serial.println("File Size: " + String(firmware.size()));
         
         Update.begin(firmware.size());
-        Update.write(firmware);
-               
-
+        Serial.println("Update Size: " + String(Update.writeStream(firmware)));
+        
         // Update.end();
         //  Serial1.onReceive(nullptr);
 
@@ -249,6 +248,8 @@ void loop()
          if (Update.end())
          {
            Serial.println("Successful update");
+           Serial.flush();
+           ESP.restart();
          }
          else
          {
