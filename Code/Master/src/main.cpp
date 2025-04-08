@@ -110,7 +110,7 @@ void setup()
   server.begin();
 
   Serial1.setPins(IC1, UART_A);
-  Serial1.begin(1000000);
+  Serial1.begin(2000000);
 
   serialTransfer.begin(Serial1);
 }

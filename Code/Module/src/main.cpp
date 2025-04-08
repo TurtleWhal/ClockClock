@@ -1,13 +1,10 @@
 #include <Arduino.h>
 #include "ClockModule.h"
-
 #include "SerialTransfer.h"
 #include "SPIFFS.h"
 #include "Update.h"
 
-// #include "esp_heap_caps.h"
-
-#define BAUDRATE 1000000
+#define BAUDRATE 2000000
 
 void firmwareUpdateTask(void *pvParameters);
 
@@ -27,7 +24,7 @@ void setup()
 {
   // Serial
   Serial.begin(1000000);
-  Serial.println("Helooo");
+  Serial.println("Helooo. I am V1.0");
 
   log_d("Total heap: %d", ESP.getHeapSize());
   log_d("Free heap: %d", ESP.getFreeHeap());
@@ -65,7 +62,7 @@ void setup()
   Serial1.flush();
   Serial2.flush();
 
-  Serial.println("Listening for input pins");
+  Serial.print("Listening for input pins ");
 
   bool listening = true;
 
@@ -76,6 +73,7 @@ void setup()
       in = UART_A;
       out = UART_B;
       listening = false;
+      Serial.println("");
       Serial.println("Using UART_A as input");
     }
     else if (Serial2.available() > 10)
@@ -83,6 +81,7 @@ void setup()
       in = UART_B;
       out = UART_A;
       listening = false;
+      Serial.println("");
       Serial.println("Using UART_B as input");
     }
     else
@@ -116,7 +115,36 @@ void setup()
   m3 = new ClockModule(2);
   m4 = new ClockModule(3);
 
-  
+  /* Print the stored file
+  Serial.println("- read from file:");
+  File file = SPIFFS.open("/firmware.bin", "r");
+  Serial.println("========================================================");
+  while (file.available())
+  {
+    Serial.write(file.read());
+  }
+  Serial.println("========================================================");
+  Serial.println("");
+  file.close();
+*/
+
+/* Compare stored files
+  Serial.println("COMPARE");
+  File filea = SPIFFS.open("/firmware.bin", "r");
+  File fileb = SPIFFS.open("/firmware.bak", "r");
+  for (int i = 0; i < filea.size(); i++)
+  {
+    if (filea.read() != fileb.read())
+    {
+      Serial.print("DIFFERENT at ");
+      Serial.println(i);
+      break;
+    }
+  }
+  Serial.println("DONE");
+  filea.close();
+  fileb.close();
+  */
 }
 
 bool firmwareUpdate = false;
@@ -144,10 +172,11 @@ void loop()
           // handle data
           // Serial.print((char)serialTransfer.packet.rxBuff[i]);
 
-          uint8_t data = serialTransfer.packet.rxBuff[i];
+          //uint8_t data = serialTransfer.packet.rxBuff[i];
+          //Serial.write(data);
 
-          //Update.write(&data, 1);
-          largeBuffer[recievedBytes + (i - 4)] = data;
+          // Update.write(&data, 1);
+          largeBuffer[recievedBytes] = serialTransfer.packet.rxBuff[i];
           recievedBytes++;
 
           // packetQueue.send(&data, sizeof(data));
@@ -162,17 +191,57 @@ void loop()
       else if (serialTransfer.currentPacketID() == 0)
       {
         Serial.println("Recieved firmware size: " + String(firmwareSize) + " bytes");
+        recievedBytes = 0;
         // recSize = serialTransfer.rxObj(firmwareSize, recSize);
         // firmware = SPIFFS.open("/firmware.bin", "w");
-        Update.begin(firmwareSize);
+        // Update.begin(firmwareSize);
       }
       else if (serialTransfer.currentPacketID() == 2)
       {
         firmwareUpdate = false;
         Serial.println("Firmware update complete, recieved " + String(recievedBytes) + " bytes");
 
-        //Update.end();
-        // Serial1.onReceive(nullptr);
+        /*
+        Serial.println("Writing to SPIFFS");
+        firmware = SPIFFS.open("/firmware.bin", "wb");
+
+        for (int i = 0; i < recievedBytes; i++){
+          //Serial.write(largeBuffer[i]);
+          firmware.write(largeBuffer[i]);
+        }
+        firmware.close();
+        Serial.println("Done Writing to SPIFFS");
+        */
+        
+        /*Serial.println("COMPARE");
+        File filea = SPIFFS.open("/firmware.bin", "r");
+        File fileb = SPIFFS.open("/firmware.bak", "r");
+        for (int i = 0; i < filea.size(); i++)
+        {
+          if (filea.read() != fileb.read())
+          {
+            Serial.print("DIFFERENT at ");
+            Serial.println(i);
+            break;
+          }
+        }
+        Serial.println("DONE");
+        filea.close();
+        fileb.close();
+*/
+
+        Serial.println("Start Update");
+
+        firmware = SPIFFS.open("/firmware.bin", "r");
+        
+        Serial.println("File Size: " + String(firmware.size()));
+        
+        Update.begin(firmware.size());
+        Update.write(firmware);
+               
+
+        // Update.end();
+        //  Serial1.onReceive(nullptr);
 
         // Update.begin(firmwareSize);
         // Update.writeStream(firmware);
