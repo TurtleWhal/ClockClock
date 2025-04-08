@@ -310,6 +310,8 @@ void sendFile(String filename)
 
   serialTransfer.sendData(headerSize);
 
+  delay(1000);
+
   uint16_t numPackets = fileSize / (MAX_PACKET_SIZE - 2); // Reserve two bytes for current file index
 
   if (fileSize % MAX_PACKET_SIZE) // Add an extra transmission if needed
@@ -328,9 +330,14 @@ void sendFile(String filename)
 
     serialTransfer.sendData(sendSize, 1); // Send the current file index and data
     Serial.println("Sending Packet: " + String(i) + " of " + String(numPackets) + " with size: " + String(dataLen) + " bytes");
-    ws.textAll("{ \"type\": \"firmwareUpdate\", \"progress\": " + String((i + 1) * 100 / numPackets) + " }");
+
+    if (i % 10 == 0)
+      ws.textAll("{ \"type\": \"firmwareUpdate\", \"progress\": " + String((i + 1) * 100 / numPackets) + " }");
+
     delay(5);
   }
+
+  ws.textAll("{ \"type\": \"firmwareUpdate\", \"progress\": 100 }");
 
   address = 202;
   uint8_t sendSize = 0;
@@ -406,7 +413,7 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
 // handles uploads
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final)
 {
-  filename = "firmware.bin";
+  // filename = "firmware.bin";
   String logmessage = "Client:" + request->client()->remoteIP().toString() + " " + request->url();
 
   if (!index)

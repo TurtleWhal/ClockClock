@@ -27,7 +27,8 @@
   <p>Upload Firmware for Modules: <br>
     <input type="file" id="fileInput" accept=".bin" style="padding-top: 7px; padding-bottom: 7px;">
     <button id="uploadButton" onclick="uploadFile()">Upload</button>
-    <button id="sendButton" onclick="websocket.send(JSON.stringify({'type': 'install'}));" disabled style="opacity: 80%; cursor: default;">Send to
+    <button id="sendButton" onclick="sendFirmware()" disabled
+      style="opacity: 80%; cursor: default;">Send to
       Modules</button>
   </p>
   <!-- <p>Upload Firmware for Modules:<br>
@@ -98,7 +99,7 @@
         }
       } else if (json["type"] == "hands") {
         hands = json["hands"];
-        console.log(hands);
+        // console.log(hands);
         draw();
       } else if (json["type"] == "firmwareUpdate") {
         uploadStatus.style.display = 'block';
@@ -107,7 +108,7 @@
 
         if (json["progress"] == 100) {
           uploadStatus.style.display = 'none';
-          alert('Firmware installed successfully');
+          // alert('Firmware installed successfully');
         }
       }
     }
@@ -125,28 +126,44 @@
         uploadMessage.innerHTML = 'Uploading Firmware...';
         uploadProgress.innerHTML = '0%';
 
-        fetch('/upload', {
-          method: 'POST',
-          body: file,
-          headers: {
-            'Content-Type': 'application/octet-stream'
+        const xhr = new XMLHttpRequest();
+        const formData = new FormData();
+        formData.append('file', file, 'firmware.bin'); // this filename gets used in handleUpload()
+
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const percent = Math.round((event.loaded / event.total) * 100);
+            uploadProgress.innerHTML = `${percent}%`;
           }
-        }).then(response => {
-          const total = parseInt(response.headers.get('Content-Length'));
-          let uploaded = 0;
+        });
 
-          response.body.on('data', (chunk) => {
-            uploaded += chunk.length;
-            const progress = Math.round(uploaded / total * 100);
-            uploadProgress.innerHTML = `${progress}%`;
-          });
-
-          alert('File uploaded successfully');
+        xhr.addEventListener('load', () => {
           uploadStatus.style.display = 'none';
-        })
+          // alert('File uploaded successfully');
+        });
+
+        xhr.addEventListener('error', () => {
+          uploadStatus.style.display = 'none';
+          alert('Upload failed');
+        });
+
+        xhr.open('POST', '/upload');
+        xhr.send(formData);
       } else {
         alert('No file selected');
       }
+    }
+
+    function sendFirmware() {
+      websocket.send(JSON.stringify({'type': 'firmware'}));
+      
+      const uploadStatus = document.getElementById('uploadStatus');
+      const uploadMessage = document.getElementById('uploadMessage');
+      const uploadProgress = document.getElementById('uploadProgress');
+
+      uploadStatus.style.display = 'block';
+      uploadMessage.innerHTML = 'Starting Firmware Update...';
+      uploadProgress.innerHTML = '';
     }
 
     const canvas = document.getElementById('canvas');

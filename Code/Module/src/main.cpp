@@ -2,7 +2,7 @@
 #include "ClockModule.h"
 
 #include "SerialTransfer.h"
-#include "SPIFFS.h"
+// #include "SPIFFS.h"
 #include "Update.h"
 
 // #include "esp_heap_caps.h"
@@ -23,7 +23,7 @@ SerialTransfer serialTransfer;
 // uint8_t *largeBuffer = (uint8_t *)heap_caps_malloc(BUFFER_SIZE, MALLOC_CAP_SPIRAM);
 // uint8_t *largeBuffer;
 
-QueueHandle_t packetQueue;
+// QueueHandle_t packetQueue;
 
 void setup()
 {
@@ -31,7 +31,7 @@ void setup()
   Serial.begin(1000000);
   Serial.println("Helooo");
 
-  packetQueue = xQueueCreate(256 * 10, sizeof(uint8_t));
+  // packetQueue = xQueueCreate(256 * 50, sizeof(uint8_t));
 
   // Serial.println("PSRAM before: " + String(ESP.getFreePsram()));
   // largeBuffer = (uint8_t *)ps_malloc(BUFFER_SIZE * sizeof(uint8_t));
@@ -46,11 +46,11 @@ void setup()
   // delay(1000);
 
   // Initialize SPIFFS
-  if (!SPIFFS.begin(true))
-  {
-    Serial.println("An Error has occurred while mounting SPIFFS");
-    return;
-  }
+  // if (!SPIFFS.begin(true))
+  // {
+  //   Serial.println("An Error has occurred while mounting SPIFFS");
+  //   return;
+  // }
 
   // largeBuffer[0] = 12;
 
@@ -115,6 +115,7 @@ void setup()
   Serial1.setPins(in, out);
   Serial1.setRxBufferSize(1024);
   Serial1.begin(BAUDRATE);
+  //Serial1.setRxFIFOFull(1u);
 
   serialTransfer.begin(Serial1);
 
@@ -133,68 +134,79 @@ void setup()
 bool firmwareUpdate = false;
 int firmwareSize = 0;
 uint32_t recievedBytes = 0;
-File firmware;
+// File firmware;
 
 void loop()
 {
   if (firmwareUpdate)
   {
-    uint16_t recSize = 0;
-    uint32_t byte;
-    recSize = serialTransfer.rxObj(byte, recSize);
-
-    // Serial.println("Recieved Byte " + String(byte));
-    // Serial.println(byte);
-    // Firmware Update
-    if (serialTransfer.currentPacketID() == 1)
+    if (serialTransfer.available())
     {
-      for (uint8_t i = 4; i < serialTransfer.bytesRead; i++)
+      uint16_t recSize = 0;
+      uint32_t byte;
+      recSize = serialTransfer.rxObj(byte, recSize);
+
+      // Serial.println("Recieved Byte " + String(byte));
+      // Serial.println(byte);
+      // Firmware Update
+      if (serialTransfer.currentPacketID() == 1)
       {
-        // handle data
-        // Serial.print((char)serialTransfer.packet.rxBuff[i]);
+        for (uint8_t i = 4; i < serialTransfer.bytesRead; i++)
+        {
+          // handle data
+          // Serial.print((char)serialTransfer.packet.rxBuff[i]);
 
-        char data = serialTransfer.packet.rxBuff[i];
-        // packetQueue.send(&data, sizeof(data));
-        xQueueGenericSend(packetQueue, &data, 0, queueSEND_TO_BACK);
-        // largeBuffer[byte + (i - 4)] = data;
-        // largeBuffer[recievedBytes++] = data;
+          uint8_t data = serialTransfer.packet.rxBuff[i];
 
-        // firmware.write(data);
-        // Serial.println("Writing: " + String(data));
+          Update.write(&data, 1);
+          recievedBytes++;
+
+          // packetQueue.send(&data, sizeof(data));
+          // xQueueGenericSend(packetQueue, &data, 0, queueSEND_TO_BACK);
+          // largeBuffer[byte + (i - 4)] = data;
+          // largeBuffer[recievedBytes++] = data;
+
+          // firmware.write(data);
+          // Serial.println("Writing: " + String(data));
+        }
       }
+      else if (serialTransfer.currentPacketID() == 0)
+      {
+        Serial.println("Recieved firmware size: " + String(firmwareSize) + " bytes");
+        // recSize = serialTransfer.rxObj(firmwareSize, recSize);
+        // firmware = SPIFFS.open("/firmware.bin", "w");
+      }
+      else if (serialTransfer.currentPacketID() == 2)
+      {
+        firmwareUpdate = false;
+        Serial.println("Firmware update complete, recieved " + String(recievedBytes) + " bytes");
+
+        Update.end();
+        // Serial1.onReceive(nullptr);
+
+        // Update.begin(firmwareSize);
+        // Update.writeStream(firmware);
+
+        // if (Update.end())
+        // {
+        //   Serial.println("Successful update");
+        // }
+        // else
+        // {
+        //   Serial.println("Error Occurred: " + String(Update.getError()));
+        //   return;
+        // }
+
+        // firmware.close();
+
+        // Serial.println("Reset in 4 seconds...");
+        // delay(4000);
+
+        // ESP.restart();
+      }
+      // Serial.println();
     }
-    else if (serialTransfer.currentPacketID() == 0)
-    {
-      Serial.println("Recieved firmware size: " + String(firmwareSize) + " bytes");
-      // recSize = serialTransfer.rxObj(firmwareSize, recSize);
-      // firmware = SPIFFS.open("/firmware.bin", "w");
-    }
-    else if (serialTransfer.currentPacketID() == 2)
-    {
-      firmwareUpdate = false;
-      Serial.println("Firmware update complete, recieved " + String(firmwareSize) + " bytes");
 
-      // Update.begin(firmwareSize);
-      // Update.writeStream(firmware);
-
-      // if (Update.end())
-      // {
-      //   Serial.println("Successful update");
-      // }
-      // else
-      // {
-      //   Serial.println("Error Occurred: " + String(Update.getError()));
-      //   return;
-      // }
-
-      // firmware.close();
-
-      // Serial.println("Reset in 4 seconds...");
-      // delay(4000);
-
-      // ESP.restart();
-    }
-    // Serial.println();
     return;
   }
 
@@ -264,53 +276,55 @@ void loop()
         // start recieving new firmware
         firmwareUpdate = true;
         serialTransfer.rxObj(firmwareSize, recSize);
-        firmware = SPIFFS.open("/firmware.bin", "w");
+        // firmware = SPIFFS.open("/firmware.bin", "w");
         Serial.println("Recieved firmware size: " + String(firmwareSize) + " bytes");
 
-        xTaskCreatePinnedToCore(
-            firmwareUpdateTask,
-            "FirmwareUpdateTask",
-            8192,
-            NULL,
-            1,
-            NULL,
-            0);
+        Update.begin(firmwareSize);
 
-        Serial1.onReceive([]()
-                          { Serial1.write(Serial1.read()); });
+        // xTaskCreatePinnedToCore(
+        //     firmwareUpdateTask,
+        //     "FirmwareUpdateTask",
+        //     8192,
+        //     NULL,
+        //     0,
+        //     NULL,
+        //     0);
+
+        // Serial1.onReceive([]()
+        //                   { Serial1.write(Serial1.read()); });
         break;
       }
     }
   }
 }
 
-void firmwareUpdateTask(void *pvParameters)
-{
-  // Serial.println("Firmware update task started");
-  // Serial.println("Recieved firmware size: " + String(firmwareSize) + " bytes");
+// void firmwareUpdateTask(void *pvParameters)
+// {
+//   // Serial.println("Firmware update task started");
+//   // Serial.println("Recieved firmware size: " + String(firmwareSize) + " bytes");
 
-  // uint8_t *buffer = (uint8_t *)malloc(firmwareSize);
-  // if (buffer == NULL)
-  // {
-  //   Serial.println("Failed to allocate buffer for firmware update");
-  //   vTaskDelete(NULL);
-  // }
+//   // uint8_t *buffer = (uint8_t *)malloc(firmwareSize);
+//   // if (buffer == NULL)
+//   // {
+//   //   Serial.println("Failed to allocate buffer for firmware update");
+//   //   vTaskDelete(NULL);
+//   // }
 
-  while (recievedBytes < firmwareSize)
-  {
-    char data;
-    xQueueReceive(packetQueue, &data, portMAX_DELAY);
-    firmware.write(data);
-    recievedBytes++;
-    Serial.print((char)data);
-  }
+//   while (recievedBytes < firmwareSize)
+//   {
+//     char data;
+//     // xQueueReceive(packetQueue, &data, portMAX_DELAY);
+//     firmware.write(data);
+//     recievedBytes++;
+//     // Serial.print((char)data);
+//   }
 
-  firmware.close();
+//   firmware.close();
 
-  Serial1.onReceive(nullptr);
+//   Serial1.onReceive(nullptr);
 
-  vTaskDelete(NULL);
-}
+//   vTaskDelete(NULL);
+// }
 
 // void handleMessage(Data *data)
 // {
