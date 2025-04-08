@@ -21,7 +21,7 @@ void setup()
 {
   // Serial
   Serial.begin(1000000);
-  Serial.print("Helooo. I am V");
+  Serial.print("Helooo. I am a Module. I am V");
   Serial.print(VERSION_BUILD);
   Serial.print(". I was built on ");
   Serial.print(VERSION_DATE);

@@ -1,16 +1,15 @@
-#include <Arduino.h>
+#include "Arduino.h"
 #include "pins.h"
 #include "Font.h"
-
 #include "EzTime.h"
 #include "ArduinoJson.h"
-
 #include "SerialTransfer.h"
-
 #include "SPIFFS.h"
 #include "WiFiManager.h"
 #include "ESPAsyncWebServer.h"
 #include "ESPmDNS.h"
+#include "version.h"
+
 WiFiManager wm;
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
@@ -61,7 +60,12 @@ void setup()
 {
   // USB Serial
   Serial.begin(115200);
-  Serial.println("Helooo");
+  Serial.print("Helooo. I am the Master. I am V");
+  Serial.print(VERSION_BUILD);
+  Serial.print(". I was built on ");
+  Serial.print(VERSION_DATE);
+  Serial.print(" at ");
+  Serial.println(VERSION_TIME);
 
   // Initialize SPIFFS
   if (!SPIFFS.begin(true))
@@ -123,6 +127,19 @@ void loop()
 
   if (uploadingFirmware)
   {
+    Serial.println("Uploading firmware, Clearinng Hands");
+
+    for (int i = 0; i < WIDTH; i++)
+    {
+      for (int j = 0; j < HEIGHT; j++)
+      {
+        buffer[i][j][0] = 90;
+        buffer[i][j][1] = 90;
+      }
+    }
+    writeBuffer();
+    delay(2500);
+
     Serial.println("Uploading firmware");
     sendFile("firmware.bin");
     uploadingFirmware = false;
@@ -166,7 +183,7 @@ void loop()
 
   // modeChanged = false;
   modeChanged = true;
-  delay(5000);
+  delay(2500);
   // vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 
@@ -174,31 +191,27 @@ void writeBuffer()
 {
   Serial.println("Sending Buffer");
 
-  if (!uploadingFirmware)
+  // if (!uploadingFirmware)
+  uint16_t sendBuffer[CLOCKS][2];
+
+  // convert the x-y buffer array to a linear array for sending to modules arranged in a Z format
+  for (int i = 0; i < MODULES; i++)
   {
+    int row = i / (WIDTH / 4);
+    int column = (row % 2 == 0) ? (i % (WIDTH / 4)) : ((WIDTH / 4) - 1) - (i % (WIDTH / 4)); // if row is odd invert columns
 
-    uint16_t sendBuffer[CLOCKS][2];
-
-    // convert the x-y buffer array to a linear array for sending to modules arranged in a Z format
-    for (int i = 0; i < MODULES; i++)
+    for (int j = 0; j < 4; j++)
     {
-      int row = i / (WIDTH / 4);
-      int column = (row % 2 == 0) ? (i % (WIDTH / 4)) : ((WIDTH / 4) - 1) - (i % (WIDTH / 4)); // if row is odd invert columns
-
-      for (int j = 0; j < 4; j++)
-      {
-        sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0] * 2;
-        sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1] * 2;
-      }
+      sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0] * 2;
+      sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1] * 2;
     }
-
-    uint16_t sendSize = 0;
-    uint8_t address = 0;
-    sendSize = serialTransfer.txObj(address, sendSize);
-    sendSize = serialTransfer.txObj(sendBuffer, sendSize);
-
-    serialTransfer.sendData(sendSize);
   }
+
+  uint16_t sendSize = 0;
+  uint8_t address = 0;
+  sendSize = serialTransfer.txObj(address, sendSize);
+  sendSize = serialTransfer.txObj(sendBuffer, sendSize);
+  serialTransfer.sendData(sendSize);
 
   // send to webpage
   String jsonString = "{ \"type\": \"hands\", \"hands\": [";
@@ -287,9 +300,6 @@ void drawTime()
 void sendFile(String filename)
 {
   // Send file to modules
-
-  uploadingFirmware = true;
-
   Serial.println("Opening file: " + filename);
   File firmware = SPIFFS.open("/" + filename, "r");
   Serial.println("File size: " + String(firmware.size()) + " bytes");
@@ -299,14 +309,12 @@ void sendFile(String filename)
   uint32_t fileSize = firmware.size();
 
   uint16_t headerSize = 0;
-  
+
   uint8_t address = 201;
   headerSize = serialTransfer.txObj(address, headerSize);
   headerSize = serialTransfer.txObj(fileSize, headerSize);
 
   serialTransfer.sendData(headerSize);
-
-  //delay(2500); //This could be used to allow hands to go to calibration position
 
   uint8_t dataLen = MAX_PACKET_SIZE - 4;
   uint16_t numPackets = fileSize / dataLen; // Reserve two bytes for current file index
@@ -330,7 +338,7 @@ void sendFile(String filename)
     if (i % 10 == 0)
       ws.textAll("{ \"type\": \"firmwareUpdate\", \"progress\": " + String((i + 1) * 100 / numPackets) + " }");
 
-    delay(5); //Needed to not overrun RX buffer
+    delay(5); // Needed to not overrun RX buffer
   }
 
   ws.textAll("{ \"type\": \"firmwareUpdate\", \"progress\": 100 }");
@@ -380,7 +388,6 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
     {
       Serial.println("Installing firmware on modules");
       uploadingFirmware = true;
-      // sendFile("firmware.bin");
     }
   }
 }
