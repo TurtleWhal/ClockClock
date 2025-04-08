@@ -2,7 +2,7 @@
 #include "ClockModule.h"
 
 #include "SerialTransfer.h"
-// #include "SPIFFS.h"
+#include "SPIFFS.h"
 #include "Update.h"
 
 // #include "esp_heap_caps.h"
@@ -18,10 +18,8 @@ ClockModule *m4;
 
 SerialTransfer serialTransfer;
 
-// #define BUFFER_SIZE (1024 * 1024) // 1MB buffer
-
-// uint8_t *largeBuffer = (uint8_t *)heap_caps_malloc(BUFFER_SIZE, MALLOC_CAP_SPIRAM);
-// uint8_t *largeBuffer;
+#define BUFFER_SIZE (1024 * 1024) // 1MB buffer for FW updates
+uint8_t *largeBuffer;
 
 // QueueHandle_t packetQueue;
 
@@ -31,46 +29,36 @@ void setup()
   Serial.begin(1000000);
   Serial.println("Helooo");
 
+  log_d("Total heap: %d", ESP.getHeapSize());
+  log_d("Free heap: %d", ESP.getFreeHeap());
+  log_d("Total PSRAM: %d", ESP.getPsramSize());
+  log_d("Used PSRAM: %d", ESP.getPsramSize() - ESP.getFreePsram());
+  log_d("Free PSRAM: %d", ESP.getFreePsram());
+  log_d("Creating Buffer!");
+
+  largeBuffer = (byte *)ps_malloc(BUFFER_SIZE); // For FW updates
+  //  for (int i = 0; i < BUFFER_SIZE; i++) {
+  //   largeBuffer[i] =  i % 256 ;
+  //  }
+
+  log_d("Used PSRAM: %d", ESP.getPsramSize() - ESP.getFreePsram());
+  log_d("Free PSRAM: %d", ESP.getFreePsram());
+
   // packetQueue = xQueueCreate(256 * 50, sizeof(uint8_t));
 
-  // Serial.println("PSRAM before: " + String(ESP.getFreePsram()));
-  // largeBuffer = (uint8_t *)ps_malloc(BUFFER_SIZE * sizeof(uint8_t));
-  // Serial.println("PSRAM after: " + String(ESP.getFreePsram()));
-
-  // if (!psramInit())
-  // {
-  //   Serial.println("PSRAM initialization failed!");
-  //   return;
-  // }
-
-  // delay(1000);
-
   // Initialize SPIFFS
-  // if (!SPIFFS.begin(true))
-  // {
-  //   Serial.println("An Error has occurred while mounting SPIFFS");
-  //   return;
-  // }
-
-  // largeBuffer[0] = 12;
-
-  // if (largeBuffer == NULL)
-  // {
-  //   Serial.println("Failed to allocate buffer in PSRAM!");
-  // }
-  // else
-  // {
-  //   Serial.println("Successfully allocated buffer in PSRAM.");
-  // }
+  if (!SPIFFS.begin(true))
+  {
+    Serial.println("An Error has occurred while mounting SPIFFS");
+    return;
+  }
 
   int in = 0, out = 0;
-
   pinMode(UART_A, INPUT_PULLDOWN);
   pinMode(UART_B, INPUT_PULLDOWN);
 
-  Serial1.setPins(UART_A, 26); // pin 26 is one of the headers because it is the only unused pin
-  Serial2.setPins(UART_B, 26);
-
+  Serial1.setPins(UART_A, NULL); // No output pin, only RX
+  Serial2.setPins(UART_B, NULL);
   Serial1.begin(BAUDRATE);
   Serial2.begin(BAUDRATE);
 
@@ -107,15 +95,13 @@ void setup()
   Serial1.end();
   Serial2.end();
 
-  Serial1.flush();
-
   pinMode(in, INPUT);
   pinMode(out, OUTPUT);
 
   Serial1.setPins(in, out);
   Serial1.setRxBufferSize(1024);
   Serial1.begin(BAUDRATE);
-  //Serial1.setRxFIFOFull(1u);
+  Serial1.setRxFIFOFull(121u);
 
   serialTransfer.begin(Serial1);
 
@@ -129,12 +115,14 @@ void setup()
   m2 = new ClockModule(1);
   m3 = new ClockModule(2);
   m4 = new ClockModule(3);
+
+  
 }
 
 bool firmwareUpdate = false;
 int firmwareSize = 0;
 uint32_t recievedBytes = 0;
-// File firmware;
+File firmware;
 
 void loop()
 {
@@ -158,7 +146,8 @@ void loop()
 
           uint8_t data = serialTransfer.packet.rxBuff[i];
 
-          Update.write(&data, 1);
+          //Update.write(&data, 1);
+          largeBuffer[recievedBytes + (i - 4)] = data;
           recievedBytes++;
 
           // packetQueue.send(&data, sizeof(data));
@@ -175,27 +164,28 @@ void loop()
         Serial.println("Recieved firmware size: " + String(firmwareSize) + " bytes");
         // recSize = serialTransfer.rxObj(firmwareSize, recSize);
         // firmware = SPIFFS.open("/firmware.bin", "w");
+        Update.begin(firmwareSize);
       }
       else if (serialTransfer.currentPacketID() == 2)
       {
         firmwareUpdate = false;
         Serial.println("Firmware update complete, recieved " + String(recievedBytes) + " bytes");
 
-        Update.end();
+        //Update.end();
         // Serial1.onReceive(nullptr);
 
         // Update.begin(firmwareSize);
         // Update.writeStream(firmware);
 
-        // if (Update.end())
-        // {
-        //   Serial.println("Successful update");
-        // }
-        // else
-        // {
-        //   Serial.println("Error Occurred: " + String(Update.getError()));
-        //   return;
-        // }
+         if (Update.end())
+         {
+           Serial.println("Successful update");
+         }
+         else
+         {
+           Serial.println("Error Occurred: " + String(Update.getError()));
+           return;
+         }
 
         // firmware.close();
 
