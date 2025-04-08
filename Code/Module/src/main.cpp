@@ -101,10 +101,10 @@ void setup()
 
   serialTransfer.begin(Serial1);
 
+  // Send init message to next module downstream
   uint16_t sendSize = 0;
   sendSize = serialTransfer.txObj((uint8_t)200, sendSize);
   sendSize = serialTransfer.txObj("Hello10Bytes", sendSize);
-
   serialTransfer.sendData(sendSize);
 
   m1 = new ClockModule(0);
@@ -114,7 +114,7 @@ void setup()
 }
 
 bool firmwareUpdate = false;
-int firmwareSize = 0;
+uint32_t firmwareSize = 0;
 uint32_t recievedBytes = 0;
 File firmware;
 
