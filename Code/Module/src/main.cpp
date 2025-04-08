@@ -1,4 +1,4 @@
-#include <Arduino.h>
+#include "Arduino.h"
 #include "ClockModule.h"
 #include "SerialTransfer.h"
 #include "SPIFFS.h"
@@ -6,6 +6,9 @@
 #include "version.h"
 
 #define BAUDRATE 2000000
+#define BUFFER_SIZE (1024 * 1024) // 1MB buffer for FW updates
+
+uint8_t *largeBuffer; //For Firmware Updates, located in PSRAM
 
 ClockModule *m1;
 ClockModule *m2;
@@ -13,9 +16,6 @@ ClockModule *m3;
 ClockModule *m4;
 
 SerialTransfer serialTransfer;
-
-#define BUFFER_SIZE (1024 * 1024) // 1MB buffer for FW updates
-uint8_t *largeBuffer;
 
 void setup()
 {
@@ -174,10 +174,8 @@ void loop()
           Serial.println("Error Occurred: " + String(Update.getError()));
           return;
         }
-
       }
     }
-
     return;
   }
 

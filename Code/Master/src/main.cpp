@@ -306,7 +306,7 @@ void sendFile(String filename)
 
   serialTransfer.sendData(headerSize);
 
-  //delay(1000);
+  //delay(2500); //This could be used to allow hands to go to calibration position
 
   uint8_t dataLen = MAX_PACKET_SIZE - 4;
   uint16_t numPackets = fileSize / dataLen; // Reserve two bytes for current file index
