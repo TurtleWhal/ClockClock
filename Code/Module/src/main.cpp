@@ -7,8 +7,6 @@
 
 #define BAUDRATE 2000000
 
-void firmwareUpdateTask(void *pvParameters);
-
 ClockModule *m1;
 ClockModule *m2;
 ClockModule *m3;
