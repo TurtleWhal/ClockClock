@@ -315,6 +315,8 @@ void sendFile(String filename)
 
   serialTransfer.sendData(headerSize);
 
+  delay(250); // wait for modules to forward headers and switch to passthrough mode
+
   uint8_t dataLen = MAX_PACKET_SIZE - 4;
   uint16_t numPackets = fileSize / dataLen; // Reserve two bytes for current file index
 

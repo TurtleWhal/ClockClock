@@ -4,10 +4,13 @@
 #include "Update.h"
 #include "version.h"
 
+#include <rom/gpio.h>
+#include <soc/gpio_sig_map.h>
+
 #define BAUDRATE 2000000
 #define BUFFER_SIZE (1024 * 1024) // 1MB buffer for FW updates
 
-uint8_t *largeBuffer; //For Firmware Updates, located in PSRAM
+uint8_t *largeBuffer; // For Firmware Updates, located in PSRAM
 
 ClockModule *m1;
 ClockModule *m2;
@@ -15,6 +18,8 @@ ClockModule *m3;
 ClockModule *m4;
 
 SerialTransfer serialTransfer;
+
+int in = 0, out = 0;
 
 void setup()
 {
@@ -39,12 +44,11 @@ void setup()
   log_d("Used PSRAM: %d", ESP.getPsramSize() - ESP.getFreePsram());
   log_d("Free PSRAM: %d", ESP.getFreePsram());
 
-  int in = 0, out = 0;
   pinMode(UART_A, INPUT_PULLDOWN);
   pinMode(UART_B, INPUT_PULLDOWN);
 
-  Serial1.setPins(UART_A, M1_A1); // No output pin, only RX
-  Serial2.setPins(UART_B, M2_A1);
+  Serial1.setPins(UART_A, -1); // No output pin, only RX
+  Serial2.setPins(UART_B, -1);
   Serial1.begin(BAUDRATE);
   Serial2.begin(BAUDRATE);
 
@@ -136,6 +140,47 @@ void loop()
       //   }
       else if (serialTransfer.currentPacketID() == 2)
       {
+        // send on firmware
+        // Serial.println("Forwarding firmware, size: " + String(recievedBytes) + " bytes");
+        // uint32_t fileSize = recievedBytes;
+
+        // uint16_t headerSize = 0;
+
+        // uint8_t address = 201;
+        // headerSize = serialTransfer.txObj(address, headerSize);
+        // headerSize = serialTransfer.txObj(fileSize, headerSize);
+
+        // serialTransfer.sendData(headerSize);
+
+        // uint8_t dataLen = MAX_PACKET_SIZE - 4;
+        // uint16_t numPackets = fileSize / dataLen; // Reserve two bytes for current file index
+
+        // if (fileSize % dataLen) // Add an extra transmission if needed
+        //   numPackets++;
+
+        // for (uint16_t i = 0; i < numPackets; i++) // Send all data within the file across multiple packets
+        // {
+        //   uint32_t fileIndex = i * dataLen; // Determine the current file index
+
+        //   if ((fileIndex + dataLen) > fileSize) // Determine data length for the last packet if file length is not an exact multiple of MAX_PACKET_SIZE-2
+        //     dataLen = fileSize - fileIndex;
+
+        //   uint8_t sendSize = serialTransfer.txObj(fileIndex);                         // Stuff the current file index
+        //   sendSize = serialTransfer.txObj(largeBuffer[fileIndex], sendSize, dataLen); // Stuff the current file data
+
+        //   serialTransfer.sendData(sendSize, 1); // Send the current file index and data
+        //   Serial.println("Sending Packet: " + String(i) + " of " + String(numPackets) + " with size: " + String(dataLen) + " bytes");
+        //   delay(5); // Needed to not overrun RX buffer
+        // }
+
+        // address = 202;
+        // uint8_t sendSize = 0;
+        // sendSize = serialTransfer.txObj(address, sendSize); // Stuff the current file index
+
+        // serialTransfer.sendData(sendSize, 2); // Send the current file index and data
+
+        // Serial.println("Forwarding Done");
+
         firmwareUpdate = false;
         Serial.println("Firmware update file recieved, size: " + String(recievedBytes) + " bytes");
 
@@ -147,7 +192,9 @@ void loop()
         }
         else
           Serial.println("Plenty of Space!");
+
         Update.write(largeBuffer, recievedBytes);
+
         if (Update.end())
         {
           Serial.println("Successful update, rebooting...");
@@ -230,7 +277,24 @@ void loop()
         firmwareUpdate = true;
         recievedBytes = 0;
         serialTransfer.rxObj(firmwareSize, recSize);
-        Serial.println("FW Update Starting, expected size: " + String(firmwareSize) + " bytes");
+        Serial.println("A FW Update Starting, expected size: " + String(firmwareSize) + " bytes");
+
+        uint16_t headerSize = 0;
+
+        uint8_t address = 201;
+        headerSize = serialTransfer.txObj(address, headerSize);
+        headerSize = serialTransfer.txObj(firmwareSize, headerSize);
+
+        serialTransfer.sendData(headerSize);
+
+        Serial1.flush();
+
+        Serial1.end();
+        Serial1.setPins(in, -1);
+        Serial1.begin(BAUDRATE);
+
+        gpio_matrix_in(in, SIG_IN_FUNC_212_IDX, false);
+        gpio_matrix_out(out, SIG_IN_FUNC_212_IDX, false, false);
         break;
       }
     }
