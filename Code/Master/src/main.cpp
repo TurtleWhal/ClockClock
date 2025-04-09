@@ -171,7 +171,6 @@ void loop()
           buffer[i][j][1] = 90;
         }
       }
-
       writeBuffer();
     }
     break;
@@ -183,7 +182,7 @@ void loop()
 
   // modeChanged = false;
   modeChanged = true;
-  delay(2500);
+  delay(5000);
   // vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 
