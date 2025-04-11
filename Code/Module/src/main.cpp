@@ -233,11 +233,15 @@ void loop()
 
     if (address < 200)
     {
+      bool speed;
+      recSize = serialTransfer.rxObj(speed, recSize);
+      
       recSize = serialTransfer.rxObj(buffer, recSize);
 
       uint16_t sendSize = 0;
       uint8_t sendAddress = address + 1;
       sendSize = serialTransfer.txObj(sendAddress, sendSize);
+      sendSize = serialTransfer.txObj(speed, sendSize);
       sendSize = serialTransfer.txObj(buffer, sendSize);
 
       serialTransfer.sendData(sendSize);
@@ -253,17 +257,34 @@ void loop()
 
       uint8_t ofs = address * 4;
 
-      m1->hourStepper->setTargetPosition(buffer[ofs][0]);
-      m1->minuteStepper->setTargetPosition(buffer[ofs][1]);
+      if (speed)
+      {
+        m1->hourStepper->setTargetSpeed(buffer[ofs][0] - UINT8_MAX);
+        m1->minuteStepper->setTargetSpeed(buffer[ofs][1] - UINT8_MAX);
 
-      m2->hourStepper->setTargetPosition(buffer[ofs + 1][0]);
-      m2->minuteStepper->setTargetPosition(buffer[ofs + 1][1]);
+        m2->hourStepper->setTargetSpeed(buffer[ofs + 1][0] - UINT8_MAX);
+        m2->minuteStepper->setTargetSpeed(buffer[ofs + 1][1] - UINT8_MAX);
 
-      m3->hourStepper->setTargetPosition(buffer[ofs + 2][0]);
-      m3->minuteStepper->setTargetPosition(buffer[ofs + 2][1]);
+        m3->hourStepper->setTargetSpeed(buffer[ofs + 2][0] - UINT8_MAX);
+        m3->minuteStepper->setTargetSpeed(buffer[ofs + 2][1] - UINT8_MAX);
 
-      m4->hourStepper->setTargetPosition(buffer[ofs + 3][0]);
-      m4->minuteStepper->setTargetPosition(buffer[ofs + 3][1]);
+        m4->hourStepper->setTargetSpeed(buffer[ofs + 3][0] - UINT8_MAX);
+        m4->minuteStepper->setTargetSpeed(buffer[ofs + 3][1] - UINT8_MAX);
+      }
+      else // position
+      {
+        m1->hourStepper->setTargetPosition(buffer[ofs][0]);
+        m1->minuteStepper->setTargetPosition(buffer[ofs][1]);
+
+        m2->hourStepper->setTargetPosition(buffer[ofs + 1][0]);
+        m2->minuteStepper->setTargetPosition(buffer[ofs + 1][1]);
+
+        m3->hourStepper->setTargetPosition(buffer[ofs + 2][0]);
+        m3->minuteStepper->setTargetPosition(buffer[ofs + 2][1]);
+
+        m4->hourStepper->setTargetPosition(buffer[ofs + 3][0]);
+        m4->minuteStepper->setTargetPosition(buffer[ofs + 3][1]);
+      }
     }
     else
     {

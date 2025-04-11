@@ -9,6 +9,7 @@
 #include "ESPAsyncWebServer.h"
 #include "ESPmDNS.h"
 #include "version.h"
+#include "ArduinoOTA.h"
 
 WiFiManager wm;
 AsyncWebServer server(80);
@@ -16,7 +17,7 @@ AsyncWebSocket ws("/ws");
 
 SerialTransfer serialTransfer;
 
-void writeBuffer();
+void writeBuffer(bool speed = false);
 void drawChar(uint8_t num, int x, int y);
 void drawTime();
 void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
@@ -24,6 +25,7 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 
 void sendFile(String filename);
+void sendStatus();
 
 #define WIDTH 8
 #define HEIGHT 3
@@ -31,13 +33,14 @@ void sendFile(String filename);
 #define MODULES CLOCKS / 4
 
 // Holds the buffer for drawing
-uint16_t buffer[WIDTH][HEIGHT][2];
+int buffer[WIDTH][HEIGHT][2];
 
 #define DEG_TO_STEPS 2
 
 #define MODE_TIME 0
 #define MODE_CUSTOM 1
 #define MODE_CLEAR 2
+#define MODE_SPIN 3
 
 int mode = MODE_TIME;
 
@@ -77,6 +80,10 @@ void setup()
   // Initialize WiFi
   wm.setDarkMode(true);
   wm.autoConnect("ClockClock");
+
+  ArduinoOTA.setHostname("clockclock");
+  ArduinoOTA.begin();
+
   MDNS.begin("clockclock");
 
   waitForSync();
@@ -174,19 +181,38 @@ void loop()
       writeBuffer();
     }
     break;
+
+  case MODE_SPIN:
+    if (modeChanged)
+    {
+      for (int i = 0; i < WIDTH; i++)
+      {
+        for (int j = 0; j < HEIGHT; j++)
+        {
+          buffer[i][j][0] = 15 + i;
+          buffer[i][j][1] = -15 - i;
+        }
+      }
+      writeBuffer(true);
+    }
+    break;
   }
 
   // Serial.println(WiFi.isConnected());
   // Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
   // Serial.printf("Max allocatable block: %d\n", ESP.getMaxAllocHeap());
 
-  // modeChanged = false;
-  modeChanged = true;
-  delay(5000);
+  modeChanged = false;
+  // modeChanged = true;
+  // delay(5000);
   // vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+  ArduinoOTA.handle();
+
+  delay(100);
 }
 
-void writeBuffer()
+void writeBuffer(bool speed)
 {
   Serial.println("Sending Buffer");
 
@@ -201,19 +227,50 @@ void writeBuffer()
 
     for (int j = 0; j < 4; j++)
     {
-      sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0] * 2;
-      sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1] * 2;
+      if (speed) {
+        sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0] + UINT8_MAX;
+        sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1] + UINT8_MAX;
+      } else {
+        sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0] * 2;
+        sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1] * 2;
+      }
     }
   }
 
   uint16_t sendSize = 0;
   uint8_t address = 0;
   sendSize = serialTransfer.txObj(address, sendSize);
+  sendSize = serialTransfer.txObj(speed, sendSize);
   sendSize = serialTransfer.txObj(sendBuffer, sendSize);
   serialTransfer.sendData(sendSize);
 
-  // send to webpage
-  String jsonString = "{ \"type\": \"hands\", \"hands\": [";
+  sendStatus();
+}
+
+void sendStatus()
+{
+  String modeName;
+  switch (mode)
+  {
+  case MODE_TIME:
+    modeName = "time";
+    break;
+  case MODE_CUSTOM:
+    modeName = "custom";
+    break;
+  case MODE_CLEAR:
+    modeName = "clear";
+    break;
+  case MODE_SPIN:
+    modeName = "spin";
+    break;
+  }
+  // Send the constructed JSON string over WebSocket to all connected clients
+  String jsonString = "{ \"type\": \"status\", \"mode\": \"" + modeName + "\", \"hasFirmware\": " + (SPIFFS.exists("/firmware.bin") ? "true" : "false") + " }";
+  ws.textAll(jsonString);
+
+  // send buffer to webpage
+  jsonString = "{ \"type\": \"hands\", \"hands\": [";
 
   for (int i = 0; i < 8; i++)
   {
@@ -238,26 +295,6 @@ void writeBuffer()
   jsonString += "] }";
 
   // Send the constructed JSON string over WebSocket to all connected clients
-  ws.textAll(jsonString);
-}
-
-void sendStatus()
-{
-  String modeName;
-  switch (mode)
-  {
-  case MODE_TIME:
-    modeName = "time";
-    break;
-  case MODE_CUSTOM:
-    modeName = "custom";
-    break;
-  case MODE_CLEAR:
-    modeName = "clear";
-    break;
-  }
-  // Send the constructed JSON string over WebSocket to all connected clients
-  String jsonString = "{ \"type\": \"status\", \"mode\": \"" + modeName + "\", \"hasFirmware\": " + (SPIFFS.exists("/firmware.bin") ? "true" : "false") + " }";
   ws.textAll(jsonString);
 }
 
@@ -336,7 +373,7 @@ void sendFile(String filename)
     serialTransfer.sendData(sendSize, 1); // Send the current file index and data
     Serial.println("Sending Packet: " + String(i) + " of " + String(numPackets) + " with size: " + String(dataLen) + " bytes");
 
-    if (i % 10 == 0)
+    if (i % 20 == 0)
       ws.textAll("{ \"type\": \"firmwareUpdate\", \"progress\": " + String((i + 1) * 100 / numPackets) + " }");
 
     delay(5); // Needed to not overrun RX buffer
@@ -380,6 +417,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         mode = MODE_CUSTOM;
       else if (newmode == "clear")
         mode = MODE_CLEAR;
+      else if (newmode == "spin")
+        mode = MODE_SPIN;
 
       modeChanged = true;
 

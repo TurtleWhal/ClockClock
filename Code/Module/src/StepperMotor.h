@@ -27,6 +27,9 @@ private:
     double _maxspeed = 360.0; // steps/second
     double _speed = 0.0; // steps/second
 
+    bool _speedMode = false;
+    int _targetSpeed = 0;
+
     unsigned long lastTime = 0; // target time for next step in microseconds
     unsigned long targetTime = 0; // target time for next step in microseconds
 
@@ -52,6 +55,7 @@ public:
     int getTargetPosition();
     void setCurrentPosition(int position);
     int getCurrentPosition();
+    void setTargetSpeed(int speed);
     void setSpeed(int speed); // steps/second
     void setAcceleration(int acceleration);
 };

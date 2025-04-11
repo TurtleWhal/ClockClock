@@ -23,16 +23,25 @@ StepperMotor::StepperMotor(int pin1, int pin2, int pin3, int pin4)
     // analogWriteResolution(_pin2, 16);
     // analogWriteResolution(_pin3, 16);
     // analogWriteResolution(_pin4, 16);
-
 }
 
 void StepperMotor::handle()
 {
-
     unsigned long currentTime = micros();
 
     if (_running)
     {
+        if (_speedMode)
+        {
+            _targetPosition = (_currentPosition + (double)_targetSpeed);
+
+            if (_currentPosition > 720.0) {
+                _currentPosition -= 720.0;
+            } else if (_currentPosition < 0.0) {
+                _currentPosition += 720.0;
+            }
+        }
+
         if (targetTime < currentTime)
         {
             unsigned long elapsedTime = currentTime - lastTime;
@@ -139,15 +148,25 @@ void StepperMotor::writeMagnet(int p1, int p2, int state)
 
 void StepperMotor::setTargetPosition(int position)
 {
+    _speedMode = false;
+
     if (position == _targetPosition)
         return;
 
-    _running = false;
-    _speed = 0;
-    // lastTime = micros();
-    // lastTime = 0;
-    // targetTime = lastTime;
+    // _speed = 0;
     _targetPosition = position;
+    _running = true;
+}
+
+void StepperMotor::setTargetSpeed(int speed)
+{
+    _speedMode = true;
+
+    // if (speed == _targetSpeed)
+    //     return;
+
+    // _speed = 0;
+    _targetSpeed = speed;
     _running = true;
 }
 
