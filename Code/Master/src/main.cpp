@@ -17,7 +17,7 @@ AsyncWebSocket ws("/ws");
 
 SerialTransfer serialTransfer;
 
-void writeBuffer(bool speed = false);
+void writeBuffer(bool speed = false, bool optimize = true);
 void drawChar(uint8_t num, int x, int y);
 void drawTime();
 void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
@@ -32,6 +32,8 @@ void sendStatus();
 #define CLOCKS WIDTH *HEIGHT
 #define MODULES CLOCKS / 4
 
+#define CLEAR_DELAY 5000
+
 // Holds the buffer for drawing
 int buffer[WIDTH][HEIGHT][2];
 
@@ -40,7 +42,8 @@ int buffer[WIDTH][HEIGHT][2];
 #define MODE_TIME 0
 #define MODE_CUSTOM 1
 #define MODE_CLEAR 2
-#define MODE_SPIN 3
+#define MODE_WAVE 3
+#define MODE_ALT_WAVE 4
 
 int mode = MODE_TIME;
 
@@ -144,12 +147,19 @@ void loop()
         buffer[i][j][1] = 90;
       }
     }
-    writeBuffer();
-    delay(2500);
+    writeBuffer(false, false);
+    delay(CLEAR_DELAY);
 
     Serial.println("Uploading firmware");
     sendFile("firmware.bin");
     uploadingFirmware = false;
+
+    delay(5000);
+
+    writeBuffer(false, false);
+
+    delay(CLEAR_DELAY);
+    modeChanged = true;
   }
 
   switch (mode)
@@ -158,7 +168,7 @@ void loop()
     if (lastMinute != myTZ.minute() || modeChanged)
     {
       drawTime();
-      writeBuffer();
+      writeBuffer(false, true);
       lastMinute = myTZ.minute();
     }
     break;
@@ -182,7 +192,7 @@ void loop()
     }
     break;
 
-  case MODE_SPIN:
+  case MODE_WAVE:
     if (modeChanged)
     {
       for (int i = 0; i < WIDTH; i++)
@@ -193,8 +203,8 @@ void loop()
           buffer[i][j][1] = 315;
         }
       }
-      writeBuffer(false);
-      delay(3500);
+      writeBuffer(false, false);
+      delay(CLEAR_DELAY);
 
       for (int i = 0; i < WIDTH; i++)
       {
@@ -209,8 +219,45 @@ void loop()
       {
         for (int j = 0; j < HEIGHT; j++)
         {
-          buffer[i][j][0] = 20;
-          buffer[i][j][1] = 20;
+          buffer[i][j][0] = 100;
+          buffer[i][j][1] = 100;
+        }
+
+        writeBuffer(true);
+        delay(600);
+      }
+    }
+    break;
+
+  case MODE_ALT_WAVE:
+    if (modeChanged)
+    {
+      for (int i = 0; i < WIDTH; i++)
+      {
+        for (int j = 0; j < HEIGHT; j++)
+        {
+          buffer[i][j][0] = 90;
+          buffer[i][j][1] = 270;
+        }
+      }
+      writeBuffer(false, false);
+      delay(CLEAR_DELAY);
+
+      for (int i = 0; i < WIDTH; i++)
+      {
+        for (int j = 0; j < HEIGHT; j++)
+        {
+          buffer[i][j][0] = 0;
+          buffer[i][j][1] = 0;
+        }
+      }
+
+      for (int i = 0; i < WIDTH; i++)
+      {
+        for (int j = 0; j < HEIGHT; j++)
+        {
+          buffer[i][j][0] = -100;
+          buffer[i][j][1] = 100;
         }
 
         writeBuffer(true);
@@ -235,7 +282,7 @@ void loop()
   delay(100);
 }
 
-void writeBuffer(bool speed)
+void writeBuffer(bool speed, bool optimize)
 {
   Serial.println("Sending Buffer");
 
@@ -267,6 +314,7 @@ void writeBuffer(bool speed)
   uint8_t address = 0;
   sendSize = serialTransfer.txObj(address, sendSize);
   sendSize = serialTransfer.txObj(speed, sendSize);
+  sendSize = serialTransfer.txObj(optimize, sendSize);
   sendSize = serialTransfer.txObj(sendBuffer, sendSize);
   serialTransfer.sendData(sendSize);
 
@@ -287,8 +335,11 @@ void sendStatus()
   case MODE_CLEAR:
     modeName = "clear";
     break;
-  case MODE_SPIN:
-    modeName = "spin";
+  case MODE_WAVE:
+    modeName = "wave";
+    break;
+  case MODE_ALT_WAVE:
+    modeName = "altwave";
     break;
   }
   // Send the constructed JSON string over WebSocket to all connected clients
@@ -443,8 +494,10 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         mode = MODE_CUSTOM;
       else if (newmode == "clear")
         mode = MODE_CLEAR;
-      else if (newmode == "spin")
-        mode = MODE_SPIN;
+      else if (newmode == "wave")
+        mode = MODE_WAVE;
+      else if (newmode == "altwave")
+        mode = MODE_ALT_WAVE;
 
       modeChanged = true;
 

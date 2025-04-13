@@ -18,7 +18,8 @@
       <option value="time">Time</option>
       <!-- <option value="text">Text</option> -->
       <option value="clear">Clear</option>
-      <option value="spin">Spin</option>
+      <option value="wave">Wave</option>
+      <option value="altwave">Alternate Wave</option>
     </select>
   </p>
   <!-- <p>Custom Text:
@@ -73,14 +74,20 @@
       websocket.onmessage = onMessage;
     }
 
+    var ping;
+
     function onOpen(event) {
       console.log('Connection opened');
       document.getElementById("status").innerHTML = "Connected";
+      ping = setInterval(function () {
+        websocket.send(JSON.stringify({ 'type': 'ping' }));
+      }, 1000);
     }
 
     function onClose(event) {
       console.log('Connection closed');
       document.getElementById("status").innerHTML = "Not Connected";
+      clearInterval(ping);
       setTimeout(initWebSocket, 1000);  // Try to reconnect after 10 seconds
     }
 

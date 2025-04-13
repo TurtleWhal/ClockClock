@@ -12,10 +12,12 @@
 
 uint8_t *largeBuffer; // For Firmware Updates, located in PSRAM
 
-ClockModule *m1;
-ClockModule *m2;
-ClockModule *m3;
-ClockModule *m4;
+// ClockModule *m1;
+// ClockModule *m2;
+// ClockModule *m3;
+// ClockModule *m4;
+
+ClockModule *modules[4];
 
 SerialTransfer serialTransfer;
 
@@ -103,10 +105,15 @@ void setup()
   sendSize = serialTransfer.txObj("Hello10Bytes", sendSize);
   serialTransfer.sendData(sendSize);
 
-  m1 = new ClockModule(0);
-  m2 = new ClockModule(1);
-  m3 = new ClockModule(2);
-  m4 = new ClockModule(3);
+  // m1 = new ClockModule(0);
+  // m2 = new ClockModule(1);
+  // m3 = new ClockModule(2);
+  // m4 = new ClockModule(3);
+
+  modules[0] = new ClockModule(0);
+  modules[1] = new ClockModule(1);
+  modules[2] = new ClockModule(2);
+  modules[3] = new ClockModule(3);
 }
 
 bool firmwareUpdate = false;
@@ -212,17 +219,23 @@ void loop()
     return;
   }
 
-  m1->minuteStepper->handle();
-  m1->hourStepper->handle();
+  // m1->minuteStepper->run();
+  // m1->hourStepper->run();
 
-  m2->minuteStepper->handle();
-  m2->hourStepper->handle();
+  // m2->minuteStepper->run();
+  // m2->hourStepper->run();
 
-  m3->minuteStepper->handle();
-  m3->hourStepper->handle();
+  // m3->minuteStepper->run();
+  // m3->hourStepper->run();
 
-  m4->minuteStepper->handle();
-  m4->hourStepper->handle();
+  // m4->minuteStepper->run();
+  // m4->hourStepper->run();
+
+  for (int i = 0; i < 4; i++)
+  {
+    modules[i]->minuteStepper->run();
+    modules[i]->hourStepper->run();
+  }
 
   if (serialTransfer.available())
   {
@@ -235,13 +248,17 @@ void loop()
     {
       bool speed;
       recSize = serialTransfer.rxObj(speed, recSize);
-      
+
+      bool optimize;
+      recSize = serialTransfer.rxObj(optimize, recSize);
+
       recSize = serialTransfer.rxObj(buffer, recSize);
 
       uint16_t sendSize = 0;
       uint8_t sendAddress = address + 1;
       sendSize = serialTransfer.txObj(sendAddress, sendSize);
       sendSize = serialTransfer.txObj(speed, sendSize);
+      sendSize = serialTransfer.txObj(optimize, sendSize);
       sendSize = serialTransfer.txObj(buffer, sendSize);
 
       serialTransfer.sendData(sendSize);
@@ -259,31 +276,61 @@ void loop()
 
       if (speed)
       {
-        m1->hourStepper->setTargetSpeed(buffer[ofs][0] - UINT8_MAX);
-        m1->minuteStepper->setTargetSpeed(buffer[ofs][1] - UINT8_MAX);
+        // m1->hourStepper->setTargetSpeed(buffer[ofs][0] - UINT8_MAX);
+        // m1->minuteStepper->setTargetSpeed(buffer[ofs][1] - UINT8_MAX);
 
-        m2->hourStepper->setTargetSpeed(buffer[ofs + 1][0] - UINT8_MAX);
-        m2->minuteStepper->setTargetSpeed(buffer[ofs + 1][1] - UINT8_MAX);
+        // m2->hourStepper->setTargetSpeed(buffer[ofs + 1][0] - UINT8_MAX);
+        // m2->minuteStepper->setTargetSpeed(buffer[ofs + 1][1] - UINT8_MAX);
 
-        m3->hourStepper->setTargetSpeed(buffer[ofs + 2][0] - UINT8_MAX);
-        m3->minuteStepper->setTargetSpeed(buffer[ofs + 2][1] - UINT8_MAX);
+        // m3->hourStepper->setTargetSpeed(buffer[ofs + 2][0] - UINT8_MAX);
+        // m3->minuteStepper->setTargetSpeed(buffer[ofs + 2][1] - UINT8_MAX);
 
-        m4->hourStepper->setTargetSpeed(buffer[ofs + 3][0] - UINT8_MAX);
-        m4->minuteStepper->setTargetSpeed(buffer[ofs + 3][1] - UINT8_MAX);
+        // m4->hourStepper->setTargetSpeed(buffer[ofs + 3][0] - UINT8_MAX);
+        // m4->minuteStepper->setTargetSpeed(buffer[ofs + 3][1] - UINT8_MAX);
+
+        for (int i = 0; i < 4; i++)
+        {
+          modules[i]->hourStepper->setTargetSpeed(buffer[ofs + i][0] - UINT8_MAX);
+          modules[i]->minuteStepper->setTargetSpeed(buffer[ofs + i][1] - UINT8_MAX);
+        }
       }
       else // position
       {
-        m1->hourStepper->setTargetPosition(buffer[ofs][0]);
-        m1->minuteStepper->setTargetPosition(buffer[ofs][1]);
 
-        m2->hourStepper->setTargetPosition(buffer[ofs + 1][0]);
-        m2->minuteStepper->setTargetPosition(buffer[ofs + 1][1]);
+        // m1->hourStepper->setTargetPosition(buffer[ofs][0]);
+        // m1->minuteStepper->setTargetPosition(buffer[ofs][1]);
 
-        m3->hourStepper->setTargetPosition(buffer[ofs + 2][0]);
-        m3->minuteStepper->setTargetPosition(buffer[ofs + 2][1]);
+        // m2->hourStepper->setTargetPosition(buffer[ofs + 1][0]);
+        // m2->minuteStepper->setTargetPosition(buffer[ofs + 1][1]);
 
-        m4->hourStepper->setTargetPosition(buffer[ofs + 3][0]);
-        m4->minuteStepper->setTargetPosition(buffer[ofs + 3][1]);
+        // m3->hourStepper->setTargetPosition(buffer[ofs + 2][0]);
+        // m3->minuteStepper->setTargetPosition(buffer[ofs + 2][1]);
+
+        // m4->hourStepper->setTargetPosition(buffer[ofs + 3][0]);
+        // m4->minuteStepper->setTargetPosition(buffer[ofs + 3][1]);
+
+        for (int i = 0; i < 4; i++)
+        {
+          uint16_t posA = buffer[ofs + i][0];
+          uint16_t posB = buffer[ofs + i][1];
+
+          long curA = modules[i]->hourStepper->getCurrentPosition();
+          long curB = modules[i]->minuteStepper->getCurrentPosition();
+
+          int distA = (abs(posA - curA) + abs(posB - curB));
+          int distB = (abs(posB - curA) + abs(posA - curB));
+
+          if (distA < distB || !optimize)
+          {
+            modules[i]->hourStepper->setTargetPosition(posA);
+            modules[i]->minuteStepper->setTargetPosition(posB);
+          }
+          else
+          {
+            modules[i]->hourStepper->setTargetPosition(posB);
+            modules[i]->minuteStepper->setTargetPosition(posA);
+          }
+        }
       }
     }
     else
