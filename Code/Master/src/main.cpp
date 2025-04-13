@@ -134,7 +134,7 @@ void loop()
 
   if (uploadingFirmware)
   {
-    Serial.println("Uploading firmware, Clearinng Hands");
+    Serial.println("Uploading firmware, Clearing Hands");
 
     for (int i = 0; i < WIDTH; i++)
     {
@@ -189,11 +189,33 @@ void loop()
       {
         for (int j = 0; j < HEIGHT; j++)
         {
-          buffer[i][j][0] = 15 + i;
-          buffer[i][j][1] = -15 - i;
+          buffer[i][j][0] = 135;
+          buffer[i][j][1] = 315;
         }
       }
-      writeBuffer(true);
+      writeBuffer(false);
+      delay(3500);
+
+      for (int i = 0; i < WIDTH; i++)
+      {
+        for (int j = 0; j < HEIGHT; j++)
+        {
+          buffer[i][j][0] = 0;
+          buffer[i][j][1] = 0;
+        }
+      }
+
+      for (int i = 0; i < WIDTH; i++)
+      {
+        for (int j = 0; j < HEIGHT; j++)
+        {
+          buffer[i][j][0] = 20;
+          buffer[i][j][1] = 20;
+        }
+
+        writeBuffer(true);
+        delay(400);
+      }
     }
     break;
   }
@@ -202,7 +224,8 @@ void loop()
   // Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
   // Serial.printf("Max allocatable block: %d\n", ESP.getMaxAllocHeap());
 
-  modeChanged = false;
+  modeChanged = false; // update at least every 5 seconds
+
   // modeChanged = true;
   // delay(5000);
   // vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -227,10 +250,13 @@ void writeBuffer(bool speed)
 
     for (int j = 0; j < 4; j++)
     {
-      if (speed) {
+      if (speed)
+      {
         sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0] + UINT8_MAX;
         sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1] + UINT8_MAX;
-      } else {
+      }
+      else
+      {
         sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0] * 2;
         sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1] * 2;
       }
@@ -459,6 +485,8 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
   // filename = "firmware.bin";
   String logmessage = "Client:" + request->client()->remoteIP().toString() + " " + request->url();
 
+  bool installFirmware = false;
+
   if (!index)
   {
     Serial.println(logmessage);
@@ -466,7 +494,8 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
     logmessage = "Upload Start: " + String(filename);
     // open the file on first call and store the file handle in the request object
     request->_tempFile = SPIFFS.open("/" + filename, "w");
-    Serial.println(logmessage);
+    request->getHeader("install")->toString().equals("true") ? installFirmware = true : installFirmware = false;
+    Serial.println(logmessage + ", Install: " + installFirmware);
   }
 
   if (len)
@@ -487,7 +516,10 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
 
     sendStatus();
 
-    // sendFile(filename);
-    // uploadingFirmware = true;
+    if (installFirmware)
+    {
+      // sendFile(filename);
+      uploadingFirmware = true;
+    }
   }
 }

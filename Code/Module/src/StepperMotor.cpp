@@ -31,28 +31,58 @@ void StepperMotor::handle()
 
     if (_running)
     {
+        unsigned long elapsedTime = currentTime - lastTime;
+
         if (_speedMode)
         {
-            _targetPosition = (_currentPosition + (double)_targetSpeed);
-
-            if (_currentPosition > 720.0) {
-                _currentPosition -= 720.0;
-            } else if (_currentPosition < 0.0) {
-                _currentPosition += 720.0;
-            }
+            _targetPosition = fmod(_currentPosition + (double)_targetSpeed * (elapsedTime / 1000000), 720.0);
         }
 
-        if (targetTime < currentTime)
+        // if (targetTime < currentTime)
+        if (currentTime - lastTime > targetTime)
         {
-            unsigned long elapsedTime = currentTime - lastTime;
+            int direction;
 
+            //     direction = (_targetSpeed > 0) ? 1 : -1;
+
+            //     if (_speed < abs(_targetSpeed))
+            //     {
+            //         _speed += _acceleration * elapsedTime / 1000000;
+            //         // _speed += 0.1;
+            //     }
+            //     else if (_speed > abs(_targetSpeed))
+            //     {
+            //         _speed -= _acceleration * elapsedTime / 1000000;
+            //         // _speed -= 0.1;
+            //     }
+
+            //     if (abs(_speed) > _maxspeed)
+            //     {
+            //         _speed = _maxspeed;
+            //     }
+
+            //     // _speed = abs(_targetSpeed);
+            // }
+            // else
+            // {
             double _distance = _targetPosition - _currentPosition;
 
             // Calculate the remaining deceleration distance based on current speed
             double _decelerationDistance = (_speed * _speed) / (2 * _acceleration);
 
             // Determine the direction of movement (1 = forward, -1 = backward)
-            int direction = (_distance > 0) ? 1 : -1;
+            direction = (_distance > 0) ? 1 : -1;
+
+            // double _rawDelta = _targetPosition - _currentPosition;
+            // double _distance = fmod(_rawDelta + 1080.0, 720.0);
+            // if (_distance > 360.0)
+            //     _distance -= 720.0;
+
+            // // Calculate the remaining deceleration distance
+            // double _decelerationDistance = (_speed * _speed) / (2 * _acceleration);
+
+            // // Determine the direction of movement (1 = forward, -1 = backward)
+            // int direction = (_distance > 0) ? 1 : -1;
 
             // Adjust logic for deceleration and speed based on distance and direction
             if (abs(_distance) <= _decelerationDistance)
@@ -76,11 +106,12 @@ void StepperMotor::handle()
                         _speed = _maxspeed; // Cap at max speed
                 }
             }
+            // }
 
             if (_microstep)
             {
                 // Update motor position based on direction
-                _currentPosition += direction * (1.0 / _microsteps);
+                _currentPosition = fmod(_currentPosition + (direction * (1.0 / _microsteps)), 720.0);
 
                 // Analog microstepping logic with direction control
                 double sineA = sin(remainder(_currentPosition / 4, 1) * (2 * PI));
@@ -95,12 +126,13 @@ void StepperMotor::handle()
 
                 // Calculate the next step's target time based on the current speed and direction
                 if (_speed > 0)
-                    targetTime = currentTime + (1000000.0 / (_speed * _microsteps));
+                    targetTime = (1000000.0 / (_speed * _microsteps));
+                // targetTime = currentTime + (1000000.0 / (_speed * _microsteps));
             }
             else
             {
                 // Update motor position based on direction
-                _currentPosition += direction * (1.0 / 2);
+                _currentPosition = fmod(_currentPosition + (direction * (1.0 / 2)), 720.0);
 
                 _phase = int(_currentPosition * 2) % 8;
 
@@ -109,14 +141,16 @@ void StepperMotor::handle()
 
                 // Calculate the next step's target time based on the current speed and direction
                 if (_speed > 0)
-                    targetTime = currentTime + (1000000.0 / (_speed * 2));
+                    targetTime = (1000000.0 / (_speed * 2));
+                // targetTime = currentTime + (1000000.0 / (_speed * 2));
             }
 
             // Serial.printf("Timer: %ld, _speed: %f, _targetPosition: %d, _currentPosition: %f\n", targetTime - currentTime, _speed, _targetPosition, _currentPosition);
 
             // Stop the motor when the target position is reached
-            if ((direction > 0 && _currentPosition >= _targetPosition) ||
-                (direction < 0 && _currentPosition <= _targetPosition))
+            if (((direction > 0 && _currentPosition >= _targetPosition) ||
+                 (direction < 0 && _currentPosition <= _targetPosition)) &&
+                !_speedMode)
             {
                 _running = false;
                 _speed = 0;
@@ -158,12 +192,26 @@ void StepperMotor::setTargetPosition(int position)
     _running = true;
 }
 
+// void StepperMotor::setTargetPosition(int position)
+// {
+//     _speedMode = false;
+
+//     double delta = fmod((position - _currentPosition + 1080.0), 720.0) - 360.0;
+//     if (delta == 0)
+//         return;
+
+//     _targetPosition = _currentPosition + delta;
+//     _running = true;
+// }
+
 void StepperMotor::setTargetSpeed(int speed)
 {
     _speedMode = true;
 
     // if (speed == _targetSpeed)
     //     return;
+
+    _targetPosition = _currentPosition;
 
     // _speed = 0;
     _targetSpeed = speed;

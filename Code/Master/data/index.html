@@ -28,16 +28,15 @@
   <p>Upload Firmware for Modules: <br>
     <input type="file" id="fileInput" accept=".bin" style="padding-top: 7px; padding-bottom: 7px;">
     <button id="uploadButton" onclick="uploadFile()">Upload</button>
-    <button id="sendButton" onclick="sendFirmware()" disabled
-      style="opacity: 80%; cursor: default;">Send to
+    <button id="sendButton" onclick="sendFirmware()" disabled style="opacity: 80%; cursor: default;">Send to
       Modules</button>
+    &nbsp;Auto Install:
+    <label class="switch">
+      <input type="checkbox" id="autoInstall"
+        onchange="websocket.send(JSON.stringify({'type': 'slideSwitch', 'state': this.checked}));">
+      <span class="slider round"></span>
+    </label>
   </p>
-  <!-- <p>Upload Firmware for Modules:<br>
-  <form action="/upload" method="post" enctype="multipart/form-data">
-    <input type="file" name="file" accept=".bin">
-    <input type="submit" value="Upload">
-  </form>
-  </p> -->
 
   <div id="uploadStatus"
     style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: none;">
@@ -131,24 +130,28 @@
         const formData = new FormData();
         formData.append('file', file, 'firmware.bin'); // this filename gets used in handleUpload()
 
+        
         xhr.upload.addEventListener('progress', (event) => {
           if (event.lengthComputable) {
             const percent = Math.round((event.loaded / event.total) * 100);
             uploadProgress.innerHTML = `${percent}%`;
           }
         });
-
+        
         xhr.addEventListener('load', () => {
           uploadStatus.style.display = 'none';
           // alert('File uploaded successfully');
         });
-
+        
         xhr.addEventListener('error', () => {
           uploadStatus.style.display = 'none';
           alert('Upload failed');
         });
-
+        
         xhr.open('POST', '/upload');
+
+        xhr.setRequestHeader('install', document.getElementById('autoInstall').checked ? 'true' : 'false');
+        
         xhr.send(formData);
       } else {
         alert('No file selected');
@@ -156,8 +159,8 @@
     }
 
     function sendFirmware() {
-      websocket.send(JSON.stringify({'type': 'firmware'}));
-      
+      websocket.send(JSON.stringify({ 'type': 'firmware' }));
+
       const uploadStatus = document.getElementById('uploadStatus');
       const uploadMessage = document.getElementById('uploadMessage');
       const uploadProgress = document.getElementById('uploadProgress');
