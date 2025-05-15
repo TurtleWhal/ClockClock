@@ -46,6 +46,7 @@ int buffer[WIDTH][HEIGHT][2];
 #define MODE_ALT_WAVE 4
 
 int mode = MODE_TIME;
+String customText = "";
 
 uint8_t moduleMap[8][3][2] = {
     {{0, 0}, {3, 0}, {4, 0}},
@@ -174,7 +175,14 @@ void loop()
     break;
 
   case MODE_CUSTOM:
-    // TODO
+    if (modeChanged)
+    {
+      for (int i = 0; i < min((int)customText.length(), 4); i++)
+      {
+        drawChar(CHAR_TO_FONT(customText.charAt(i)), i * 2, 0);
+      }
+      writeBuffer();
+    }
     break;
 
   case MODE_CLEAR:
@@ -498,6 +506,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         mode = MODE_WAVE;
       else if (newmode == "altwave")
         mode = MODE_ALT_WAVE;
+
+      customText = doc["custom"].as<String>();
 
       modeChanged = true;
 

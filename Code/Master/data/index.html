@@ -14,17 +14,19 @@
   <canvas id="canvas"></canvas>
 
   <p>Mode:
-    <select id="mode" onchange="websocket.send(JSON.stringify({'type': 'mode', 'mode': this.value}));">
+    <select id="mode" onchange="updateMode()">
       <option value="time">Time</option>
-      <!-- <option value="text">Text</option> -->
+      <option value="custom">Custom</option>
       <option value="clear">Clear</option>
       <option value="wave">Wave</option>
       <option value="altwave">Alternate Wave</option>
     </select>
+  <!-- </p>
+  <p> -->
+    &nbsp;
+    Custom Text:
+    <input type="text" id="text" onchange="updateMode()">
   </p>
-  <!-- <p>Custom Text:
-    <input type="text" id="text" oninput="websocket.send(JSON.stringify({'type': 'text', 'text': this.value}));">
-  </p> -->
 
   <p>Upload Firmware for Modules: <br>
     <input type="file" id="fileInput" accept=".bin" style="padding-top: 7px; padding-bottom: 7px;">
@@ -56,6 +58,13 @@
       for (let j = 0; j < 3; j++) {
         hands[i][j] = [step * (i + 1), 360 - step * (i + 1)];
       }
+    }
+
+    function updateMode() {
+      var mode = document.getElementById("mode").value;
+      var text = document.getElementById("text").value;
+      websocket.send(JSON.stringify({ 'type': 'mode', 'mode': mode, 'custom': text }));
+      console.log({ 'type': 'mode', 'mode': mode, 'custom': text });
     }
 
     var websocket;

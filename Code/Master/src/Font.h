@@ -3,6 +3,8 @@
 
 #include "Arduino.h"
 
+#define CHAR_TO_FONT(c) (c > '0' && c <= '9' ? c - '0' : c - 'A' + 10)
+
 const uint16_t font[][3][2][2] = {
     // '0'
     {
