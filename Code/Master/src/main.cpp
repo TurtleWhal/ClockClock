@@ -177,9 +177,18 @@ void loop()
   case MODE_CUSTOM:
     if (modeChanged)
     {
+      for (int i = 0; i < WIDTH; i++)
+      {
+        for (int j = 0; j < HEIGHT; j++)
+        {
+          buffer[i][j][0] = 135;
+          buffer[i][j][1] = 135;
+        }
+      }
+
       for (int i = 0; i < min((int)customText.length(), 4); i++)
       {
-        drawChar(CHAR_TO_FONT(customText.charAt(i)), i * 2, 0);
+        drawChar(CHAR_TO_FONT(customText.charAt(i)), (i * 2) + (4 - customText.length()), 0);
       }
       writeBuffer();
     }
