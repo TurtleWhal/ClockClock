@@ -11,13 +11,15 @@
 #include "version.h"
 #include "ArduinoOTA.h"
 
+#include "motorcontrol.h"
+
 WiFiManager wm;
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
 SerialTransfer serialTransfer;
 
-void writeBuffer(bool speed = false, bool optimize = true);
+void writeBuffer();
 void drawChar(uint8_t num, int x, int y);
 void drawTime();
 void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
@@ -35,7 +37,20 @@ void sendStatus();
 #define CLEAR_DELAY 5000
 
 // Holds the buffer for drawing
-int buffer[WIDTH][HEIGHT][2];
+// int buffer[WIDTH][HEIGHT][2];
+MotorControl_t buffer[WIDTH][HEIGHT][2];
+
+void clearBuffer()
+{
+  for (int i = 0; i < WIDTH; i++)
+  {
+    for (int j = 0; j < HEIGHT; j++)
+    {
+      buffer[i][j][0] = MotorControl_t();
+      buffer[i][j][1] = MotorControl_t();
+    }
+  }
+}
 
 #define DEG_TO_STEPS 2
 
@@ -88,7 +103,7 @@ void setup()
   ArduinoOTA.setHostname("clockclock");
   ArduinoOTA.begin();
 
-  MDNS.begin("clockclock");
+  // MDNS.begin("clockclock");
 
   waitForSync();
 
@@ -144,11 +159,12 @@ void loop()
     {
       for (int j = 0; j < HEIGHT; j++)
       {
-        buffer[i][j][0] = 90;
-        buffer[i][j][1] = 90;
+        buffer[i][j][0].position = 90;
+        buffer[i][j][1].position = 90;
       }
     }
-    writeBuffer(false, false);
+    // TODO: was speed false and optimize false, also make writebuffer calculate the amount of time to get to position
+    writeBuffer();
     delay(CLEAR_DELAY);
 
     Serial.println("Uploading firmware");
@@ -157,7 +173,7 @@ void loop()
 
     delay(5000);
 
-    writeBuffer(false, false);
+    writeBuffer();
 
     delay(CLEAR_DELAY);
     modeChanged = true;
@@ -168,8 +184,18 @@ void loop()
   case MODE_TIME:
     if (lastMinute != myTZ.minute() || modeChanged)
     {
-      drawTime();
-      writeBuffer(false, true);
+      clearBuffer();
+
+      int hour = myTZ.hourFormat12();
+      int minute = myTZ.minute();
+      int second = myTZ.second();
+
+      drawChar(hour / 10 % 10, 0, 0);
+      drawChar(hour % 10, 2, 0);
+      drawChar(minute / 10 % 10, 4, 0);
+      drawChar(minute % 10, 6, 0);
+
+      writeBuffer();
       lastMinute = myTZ.minute();
     }
     break;
@@ -177,12 +203,14 @@ void loop()
   case MODE_CUSTOM:
     if (modeChanged)
     {
+      clearBuffer();
+
       for (int i = 0; i < WIDTH; i++)
       {
         for (int j = 0; j < HEIGHT; j++)
         {
-          buffer[i][j][0] = 135;
-          buffer[i][j][1] = 135;
+          buffer[i][j][0].position = 135;
+          buffer[i][j][1].position = 135;
         }
       }
 
@@ -197,14 +225,17 @@ void loop()
   case MODE_CLEAR:
     if (modeChanged)
     {
+      clearBuffer();
+
       for (int i = 0; i < WIDTH; i++)
       {
         for (int j = 0; j < HEIGHT; j++)
         {
-          buffer[i][j][0] = 90;
-          buffer[i][j][1] = 90;
+          buffer[i][j][0].position = 90;
+          buffer[i][j][1].position = 90;
         }
       }
+
       writeBuffer();
     }
     break;
@@ -212,74 +243,80 @@ void loop()
   case MODE_WAVE:
     if (modeChanged)
     {
+      clearBuffer();
+
+      // for (int i = 0; i < WIDTH; i++)
+      // {
+      //   for (int j = 0; j < HEIGHT; j++)
+      //   {
+      //     buffer[i][j][0].position = 135;
+      //     buffer[i][j][1].position = 315;
+      //     buffer[i][j][0].direction = MOTOR_CW;
+      //     buffer[i][j][1].direction = MOTOR_CW;
+      //   }
+      // }
+      
+      // writeBuffer();
+      // delay(CLEAR_DELAY);
+      
       for (int i = 0; i < WIDTH; i++)
       {
         for (int j = 0; j < HEIGHT; j++)
         {
-          buffer[i][j][0] = 135;
-          buffer[i][j][1] = 315;
+          buffer[i][j][0].position = 135 - (i * 10);
+          buffer[i][j][1].position = 315 - (i * 10);
+          buffer[i][j][0].speed = 100;
+          buffer[i][j][1].speed = 100;
+          buffer[i][j][0].keepRunning = true;
+          buffer[i][j][1].keepRunning = true;
+          buffer[i][j][0].direction = MOTOR_CW;
+          buffer[i][j][1].direction = MOTOR_CW;
         }
+        
+        // writeBuffer();
+        // delay(600);
       }
-      writeBuffer(false, false);
-      delay(CLEAR_DELAY);
-
-      for (int i = 0; i < WIDTH; i++)
-      {
-        for (int j = 0; j < HEIGHT; j++)
-        {
-          buffer[i][j][0] = 0;
-          buffer[i][j][1] = 0;
-        }
-      }
-
-      for (int i = 0; i < WIDTH; i++)
-      {
-        for (int j = 0; j < HEIGHT; j++)
-        {
-          buffer[i][j][0] = 100;
-          buffer[i][j][1] = 100;
-        }
-
-        writeBuffer(true);
-        delay(600);
-      }
+      writeBuffer();
     }
     break;
-
-  case MODE_ALT_WAVE:
+    
+    case MODE_ALT_WAVE:
     if (modeChanged)
     {
+      clearBuffer();
+      
+      // for (int i = 0; i < WIDTH; i++)
+      // {
+      //   for (int j = 0; j < HEIGHT; j++)
+      //   {
+      //     buffer[i][j][0].position = 90;
+      //     buffer[i][j][1].position = 270;
+      //     buffer[i][j][0].direction = MOTOR_CCW;
+      //     buffer[i][j][1].direction = MOTOR_CW;
+      //   }
+      // }
+      
+      // writeBuffer();
+      // delay(CLEAR_DELAY);
+      
       for (int i = 0; i < WIDTH; i++)
       {
         for (int j = 0; j < HEIGHT; j++)
         {
-          buffer[i][j][0] = 90;
-          buffer[i][j][1] = 270;
-        }
-      }
-      writeBuffer(false, false);
-      delay(CLEAR_DELAY);
-
-      for (int i = 0; i < WIDTH; i++)
-      {
-        for (int j = 0; j < HEIGHT; j++)
-        {
-          buffer[i][j][0] = 0;
-          buffer[i][j][1] = 0;
-        }
-      }
-
-      for (int i = 0; i < WIDTH; i++)
-      {
-        for (int j = 0; j < HEIGHT; j++)
-        {
-          buffer[i][j][0] = -100;
-          buffer[i][j][1] = 100;
+          buffer[i][j][0].position = 90 + (i * 10);
+          buffer[i][j][1].position = 270 - (i * 10);
+          buffer[i][j][0].speed = 100;
+          buffer[i][j][1].speed = 100;
+          buffer[i][j][0].keepRunning = true;
+          buffer[i][j][1].keepRunning = true;
+          buffer[i][j][0].direction = MOTOR_CCW;
+          buffer[i][j][1].direction = MOTOR_CW;
         }
 
-        writeBuffer(true);
-        delay(400);
+        // writeBuffer();
+        // delay(400);
       }
+      writeBuffer();
     }
     break;
   }
@@ -299,12 +336,12 @@ void loop()
   delay(100);
 }
 
-void writeBuffer(bool speed, bool optimize)
+void writeBuffer()
 {
   Serial.println("Sending Buffer");
 
   // if (!uploadingFirmware)
-  uint16_t sendBuffer[CLOCKS][2];
+  MotorControl_t sendBuffer[CLOCKS][2];
 
   // convert the x-y buffer array to a linear array for sending to modules arranged in a Z format
   for (int i = 0; i < MODULES; i++)
@@ -314,24 +351,16 @@ void writeBuffer(bool speed, bool optimize)
 
     for (int j = 0; j < 4; j++)
     {
-      if (speed)
-      {
-        sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0] + UINT8_MAX;
-        sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1] + UINT8_MAX;
-      }
-      else
-      {
-        sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0] * 2;
-        sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1] * 2;
-      }
+      sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0];
+      sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1];
+      sendBuffer[i * 4 + j][0].position *= 2;
+      sendBuffer[i * 4 + j][1].position *= 2;
     }
   }
 
   uint16_t sendSize = 0;
   uint8_t address = 0;
   sendSize = serialTransfer.txObj(address, sendSize);
-  sendSize = serialTransfer.txObj(speed, sendSize);
-  sendSize = serialTransfer.txObj(optimize, sendSize);
   sendSize = serialTransfer.txObj(sendBuffer, sendSize);
   serialTransfer.sendData(sendSize);
 
@@ -372,7 +401,7 @@ void sendStatus()
     for (int j = 0; j < 3; j++)
     {
       jsonString += "[";
-      jsonString += String(buffer[i][j][0]) + "," + String(buffer[i][j][1]);
+      jsonString += String(buffer[i][j][0].position) + "," + String(buffer[i][j][1].position);
       jsonString += "]";
       if (j < 2)
       {
@@ -396,35 +425,23 @@ void drawChar(uint8_t num, int x, int y)
 {
   auto c = font[num];
 
-  buffer[x][y][0] = c[0][0][0];
-  buffer[x][y][1] = c[0][0][1];
+  buffer[x][y][0].position = c[0][0][0];
+  buffer[x][y][1].position = c[0][0][1];
 
-  buffer[x + 1][y][0] = c[0][1][0];
-  buffer[x + 1][y][1] = c[0][1][1];
+  buffer[x + 1][y][0].position = c[0][1][0];
+  buffer[x + 1][y][1].position = c[0][1][1];
 
-  buffer[x][y + 1][0] = c[1][0][0];
-  buffer[x][y + 1][1] = c[1][0][1];
+  buffer[x][y + 1][0].position = c[1][0][0];
+  buffer[x][y + 1][1].position = c[1][0][1];
 
-  buffer[x + 1][y + 1][0] = c[1][1][0];
-  buffer[x + 1][y + 1][1] = c[1][1][1];
+  buffer[x + 1][y + 1][0].position = c[1][1][0];
+  buffer[x + 1][y + 1][1].position = c[1][1][1];
 
-  buffer[x][y + 2][0] = c[2][0][0];
-  buffer[x][y + 2][1] = c[2][0][1];
+  buffer[x][y + 2][0].position = c[2][0][0];
+  buffer[x][y + 2][1].position = c[2][0][1];
 
-  buffer[x + 1][y + 2][0] = c[2][1][0];
-  buffer[x + 1][y + 2][1] = c[2][1][1];
-}
-
-void drawTime()
-{
-  int hour = myTZ.hourFormat12();
-  int minute = myTZ.minute();
-  int second = myTZ.second();
-
-  drawChar(hour / 10 % 10, 0, 0);
-  drawChar(hour % 10, 2, 0);
-  drawChar(minute / 10 % 10, 4, 0);
-  drawChar(minute % 10, 6, 0);
+  buffer[x + 1][y + 2][0].position = c[2][1][0];
+  buffer[x + 1][y + 2][1].position = c[2][1][1];
 }
 
 void sendFile(String filename)
@@ -517,6 +534,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         mode = MODE_ALT_WAVE;
 
       customText = doc["custom"].as<String>();
+      customText.toUpperCase();
 
       modeChanged = true;
 

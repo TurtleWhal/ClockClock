@@ -5,9 +5,6 @@
 		},
 		{
 			"path": "Module"
-		},
-		{
-			"path": "ClockSerial"
 		}
 	],
 	"settings": {
