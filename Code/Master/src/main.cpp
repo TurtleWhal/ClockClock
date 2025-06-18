@@ -122,9 +122,11 @@ void setup()
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/index.html", String()); });
 
-  // Route to load style.css file
   server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/style.css", "text/css"); });
+
+  server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/favicon.ico", "image/x-icon"); });
 
   // run handleUpload function when any file is uploaded
   server.on("/upload", HTTP_POST, [](AsyncWebServerRequest *request)
