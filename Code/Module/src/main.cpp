@@ -30,7 +30,8 @@ void MotorUpdateTask(void *pvParameters)
       modules[i]->minuteStepper->update();
       modules[i]->hourStepper->update();
     }
-    delay(1);
+    
+    vTaskDelay(1 / portTICK_PERIOD_MS); // Delay to prevent task starvation
   }
 }
 

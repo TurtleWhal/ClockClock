@@ -40,25 +40,28 @@ void sendStatus();
 // int buffer[WIDTH][HEIGHT][2];
 MotorControl_t buffer[WIDTH][HEIGHT][2];
 
-void clearBuffer()
+void clearBuffer(MotorControl_t fill = MotorControl_t())
 {
   for (int i = 0; i < WIDTH; i++)
   {
     for (int j = 0; j < HEIGHT; j++)
     {
-      buffer[i][j][0] = MotorControl_t();
-      buffer[i][j][1] = MotorControl_t();
+      buffer[i][j][0] = fill;
+      buffer[i][j][1] = fill;
     }
   }
 }
 
 #define DEG_TO_STEPS 2
 
-#define MODE_TIME 0
-#define MODE_CUSTOM 1
-#define MODE_CLEAR 2
-#define MODE_WAVE 3
-#define MODE_ALT_WAVE 4
+enum {
+  MODE_TIME,
+  MODE_CLEAR,
+  MODE_DIAGONAL,
+  MODE_CUSTOM,
+  MODE_WAVE,
+  MODE_ALT_WAVE,
+};
 
 int mode = MODE_TIME;
 String customText = "";
@@ -155,14 +158,15 @@ void loop()
   {
     Serial.println("Uploading firmware, Clearing Hands");
 
-    for (int i = 0; i < WIDTH; i++)
-    {
-      for (int j = 0; j < HEIGHT; j++)
-      {
-        buffer[i][j][0].position = 90;
-        buffer[i][j][1].position = 90;
-      }
-    }
+    clearBuffer({.position = 90, .time = 1000});
+    // for (int i = 0; i < WIDTH; i++)
+    // {
+    //   for (int j = 0; j < HEIGHT; j++)
+    //   {
+    //     buffer[i][j][0].position = 90;
+    //     buffer[i][j][1].position = 90;
+    //   }
+    // }
     // TODO: was speed false and optimize false, also make writebuffer calculate the amount of time to get to position
     writeBuffer();
     delay(CLEAR_DELAY);
@@ -184,7 +188,7 @@ void loop()
   case MODE_TIME:
     if (lastMinute != myTZ.minute() || modeChanged)
     {
-      clearBuffer();
+      clearBuffer({.position = 135, .time = 5000});
 
       int hour = myTZ.hourFormat12();
       int minute = myTZ.minute();
@@ -203,16 +207,16 @@ void loop()
   case MODE_CUSTOM:
     if (modeChanged)
     {
-      clearBuffer();
+      clearBuffer({.position = 135, .time = 5000});
 
-      for (int i = 0; i < WIDTH; i++)
-      {
-        for (int j = 0; j < HEIGHT; j++)
-        {
-          buffer[i][j][0].position = 135;
-          buffer[i][j][1].position = 135;
-        }
-      }
+      // for (int i = 0; i < WIDTH; i++)
+      // {
+      //   for (int j = 0; j < HEIGHT; j++)
+      //   {
+      //     buffer[i][j][0].position = 135;
+      //     buffer[i][j][1].position = 135;
+      //   }
+      // }
 
       for (int i = 0; i < min((int)customText.length(), 4); i++)
       {
@@ -225,14 +229,32 @@ void loop()
   case MODE_CLEAR:
     if (modeChanged)
     {
-      clearBuffer();
+      clearBuffer({.position = 90, .time = 1000});
+
+      // for (int i = 0; i < WIDTH; i++)
+      // {
+      //   for (int j = 0; j < HEIGHT; j++)
+      //   {
+      //     buffer[i][j][0].position = 90;
+      //     buffer[i][j][1].position = 90;
+      //   }
+      // }
+
+      writeBuffer();
+    }
+    break;
+
+  case MODE_DIAGONAL:
+    if (modeChanged)
+    {
+      clearBuffer({.time = 5000});
 
       for (int i = 0; i < WIDTH; i++)
       {
         for (int j = 0; j < HEIGHT; j++)
         {
-          buffer[i][j][0].position = 90;
-          buffer[i][j][1].position = 90;
+          buffer[i][j][0].position = 135;
+          buffer[i][j][1].position = 315;
         }
       }
 
@@ -381,6 +403,9 @@ void sendStatus()
   case MODE_CLEAR:
     modeName = "clear";
     break;
+  case MODE_DIAGONAL:
+    modeName = "diagonal";
+    break;
   case MODE_WAVE:
     modeName = "wave";
     break;
@@ -528,6 +553,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         mode = MODE_CUSTOM;
       else if (newmode == "clear")
         mode = MODE_CLEAR;
+      else if (newmode == "diagonal")
+        mode = MODE_DIAGONAL;
       else if (newmode == "wave")
         mode = MODE_WAVE;
       else if (newmode == "altwave")
