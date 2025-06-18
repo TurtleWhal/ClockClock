@@ -68,7 +68,7 @@ public:
     {
         if (control.keepRunning == false)
         {
-            targetPosition = control.position * MICROSTEPS;
+            targetPosition = control.position * MICRO_STEPS_PER_DEGREE;
             targetSpeed = control.speed;
             acceleration = control.acceleration;
             currentSpeed = 1;
@@ -139,9 +139,9 @@ public:
     }
 
     // Utility functions
-    uint16_t getCurrentPosition() const // in steps
+    uint16_t getCurrentPosition() const // in DEGREES
     {
-        return currentPosition / MICROSTEPS;
+        return currentPosition / MICRO_STEPS_PER_DEGREE;
     }
 
     bool isMotorRunning() const
@@ -154,11 +154,11 @@ public:
         isRunning = false;
     }
 
-    void setPosition(uint16_t position) // in steps
+    void setPosition(uint16_t position) // in degrees
     {
         // Set the current position for calibration purposes
         // This allows you to tell the motor where it actually is
-        currentPosition = position * MICROSTEPS;
+        currentPosition = position * MICRO_STEPS_PER_DEGREE;
         writeStep(currentPosition);
     }
 

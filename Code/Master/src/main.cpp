@@ -52,8 +52,6 @@ void clearBuffer(MotorControl_t fill = MotorControl_t())
   }
 }
 
-#define DEG_TO_STEPS 2
-
 enum {
   MODE_TIME,
   MODE_CLEAR,
@@ -375,8 +373,6 @@ void writeBuffer()
     {
       sendBuffer[i * 4 + j][0] = buffer[(column * 4) + j][row][0];
       sendBuffer[i * 4 + j][1] = buffer[(column * 4) + j][row][1];
-      sendBuffer[i * 4 + j][0].position *= 2;
-      sendBuffer[i * 4 + j][1].position *= 2;
     }
   }
 
