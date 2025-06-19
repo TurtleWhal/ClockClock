@@ -9,7 +9,19 @@
 </head>
 
 <body>
-  <h1>ClockClock</h1>
+  <h1 style="user-select: none;" onclick="this.innerText += 'Clock'">ClockClock</h1>
+  <!-- <h1 style="user-select: none;" onclick="hehe()">Clock<sup id="firstclock">Clock</sup></h1> -->
+
+  <script>
+    var lastelement = document.getElementById("firstclock");
+    function hehe(element) {
+      var sup = document.createElement("sup");
+      sup.innerHTML = 'Clock';
+      lastelement.appendChild(sup);
+      lastelement = sup;
+    }
+  </script>
+
   <p id="status">Not Connected</p>
   <canvas id="canvas"></canvas>
 
@@ -19,10 +31,11 @@
       <option value="clear">Clear</option>
       <option value="diagonal">Diagonal</option>
       <option value="custom">Custom</option>
+      <option value="interactive">Interactive</option>
       <option value="wave">/-\|/-\|/</option>
       <option value="altwave">|&lt;-&gt;|&lt;-&gt;|</option>
     </select>
-  <!-- </p>
+    <!-- </p>
   <p> -->
     &nbsp;
     Custom Text:
@@ -53,17 +66,37 @@
   <script>
     var hands = [];
     var step = 19.75;
+    var handVelocities = []; // Add velocity tracking for each hand
+    var mouseTargets = []; // Store target angles for each hand
+    var mouseActive = false; // Track if mouse is being dragged
+    var mouseX = 0, mouseY = 0; // Store current mouse position
+    var mouseSpeed = 0; // Track cursor speed
+    var lastMouseX = 0, lastMouseY = 0; // Store previous mouse position for speed calculation
+    var originalHands = []; // Store original hand positions
+    var randomDirections = []; // Store random spin directions for each hand
+    var lastMouseMoveTime = 0; // Track when mouse last moved
 
     for (let i = 0; i < 8; i++) {
       hands[i] = [];
+      handVelocities[i] = [];
+      mouseTargets[i] = [];
+      originalHands[i] = [];
+      randomDirections[i] = [];
       for (let j = 0; j < 3; j++) {
         hands[i][j] = [step * (i + 1), 360 - step * (i + 1)];
+        handVelocities[i][j] = [0, 0]; // Initialize velocities to 0
+        mouseTargets[i][j] = [null, null]; // Initialize targets to null
+        originalHands[i][j] = [step * (i + 1), 360 - step * (i + 1)]; // Store original positions
+        randomDirections[i][j] = [Math.random() * 2 - 1, Math.random() * 2 - 1]; // Random directions
       }
     }
 
     function updateMode() {
       var mode = document.getElementById("mode").value;
       var text = document.getElementById("text").value;
+
+      // if (mode === "interactive") {}
+
       websocket.send(JSON.stringify({ 'type': 'mode', 'mode': mode, 'custom': text }));
       console.log({ 'type': 'mode', 'mode': mode, 'custom': text });
     }
@@ -74,10 +107,12 @@
 
     function onLoad(event) {
       initWebSocket();
+      startPhysicsLoop();
     }
 
     function initWebSocket() {
-      var gateway = `ws://${window.location.hostname || 'clockclock'}/ws`;
+      // var gateway = `ws://${window.location.hostname || 'clockclock'}/ws`;
+      var gateway = `ws://192.168.10.111/ws`;
       websocket = new WebSocket(gateway);
       websocket.onopen = onOpen;
       websocket.onclose = onClose;
@@ -116,6 +151,17 @@
         }
       } else if (json["type"] == "hands") {
         hands = json["hands"];
+        // Reset velocities when receiving new data from server
+        for (let i = 0; i < 8; i++) {
+          for (let j = 0; j < 3; j++) {
+            handVelocities[i][j] = [0, 0];
+            mouseTargets[i][j] = [null, null]; // Reset mouse targets
+            originalHands[i][j] = [hands[i][j][0], hands[i][j][1]]; // Update original positions
+            randomDirections[i][j] = [Math.random() * 2 - 1, Math.random() * 2 - 1]; // New random directions
+          }
+        }
+        mouseActive = false; // Reset mouse active state
+        mouseSpeed = 0; // Reset mouse speed
         // console.log(hands);
         draw();
       } else if (json["type"] == "firmwareUpdate") {
@@ -147,28 +193,28 @@
         const formData = new FormData();
         formData.append('file', file, 'firmware.bin'); // this filename gets used in handleUpload()
 
-        
+
         xhr.upload.addEventListener('progress', (event) => {
           if (event.lengthComputable) {
             const percent = Math.round((event.loaded / event.total) * 100);
             uploadProgress.innerHTML = `${percent}%`;
           }
         });
-        
+
         xhr.addEventListener('load', () => {
           uploadStatus.style.display = 'none';
           // alert('File uploaded successfully');
         });
-        
+
         xhr.addEventListener('error', () => {
           uploadStatus.style.display = 'none';
           alert('Upload failed');
         });
-        
+
         xhr.open('POST', '/upload');
 
         xhr.setRequestHeader('install', document.getElementById('autoInstall').checked ? 'true' : 'false');
-        
+
         xhr.send(formData);
       } else {
         alert('No file selected');
@@ -192,6 +238,188 @@
 
     canvas.height = 330;
     canvas.width = 880;
+
+    var dragging = false;
+
+    var lastx, lasty;
+
+    canvas.onmousedown = canvas.ontouchstart = (e) => {
+      dragging = true;
+      lastx = e.offsetX || e.touches[0].clientX - canvas.getBoundingClientRect().left;
+      lasty = e.offsetY || e.touches[0].clientY - canvas.getBoundingClientRect().top;
+    }
+
+    canvas.onmouseup = canvas.onmouseleave = canvas.ontouchend = canvas.ontouchcancel = (e) => {
+      dragging = false;
+      mouseActive = false; // Ensure mouse is inactive when leaving canvas
+      // draw();
+    }
+
+    canvas.onmousemove = canvas.ontouchmove = (e) => {
+      // Always track mouse movement, not just when dragging
+      var currentMouseX = e.offsetX || e.touches[0].clientX - canvas.getBoundingClientRect().left;
+      var currentMouseY = e.offsetY || e.touches[0].clientY - canvas.getBoundingClientRect().top;
+      
+      // Calculate mouse speed
+      var deltaX = currentMouseX - lastMouseX;
+      var deltaY = currentMouseY - lastMouseY;
+      mouseSpeed = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      
+      // Update mouse position
+      mouseX = currentMouseX;
+      mouseY = currentMouseY;
+      lastMouseX = currentMouseX;
+      lastMouseY = currentMouseY;
+      
+      // Update last move time
+      lastMouseMoveTime = Date.now();
+      
+      // Update mouse targets
+      updateMouseTargets();
+      
+      // Set mouse as active when there's any movement
+      mouseActive = mouseSpeed > 0.01; // Much lower threshold
+      
+      if (dragging) {
+        dist = Math.sqrt(Math.pow(mouseX - lastx, 2) + Math.pow(mouseY - lasty, 2));
+
+        lastx = mouseX;
+        lasty = mouseY;
+
+        // draw();
+
+        // ctx.strokeStyle = '#fff';
+        // ctx.lineWidth = 2;
+        // ctx.beginPath();
+        // ctx.arc(mouseX, mouseY, dist * 2, 0, 2 * Math.PI);
+        // ctx.stroke();
+      }
+    }
+
+    function updateMouseTargets() {
+      var space = 110;
+      var halfspace = space / 2;
+      var repulsionRadius = 150; // Large radius for wide effect
+      
+      for (let y = 0; y < 3; y++) {
+        for (let x = 0; x < 8; x++) {
+          // Calculate clock center position
+          var clockX = halfspace + x * space;
+          var clockY = halfspace + y * space;
+          
+          // Calculate distance from mouse to clock center
+          var distance = Math.sqrt(Math.pow(mouseX - clockX, 2) + Math.pow(mouseY - clockY, 2));
+
+          if (distance < repulsionRadius && distance > 0) {
+            // Mark hands as affected by mouse movement
+            mouseTargets[x][y][0] = true;
+            mouseTargets[x][y][1] = true;
+          } else {
+            // Mark hands as not affected
+            mouseTargets[x][y][0] = false;
+            mouseTargets[x][y][1] = false;
+          }
+        }
+      }
+    }
+
+    function updateMouseSpeed() {
+      var currentTime = Date.now();
+      var timeSinceLastMove = currentTime - lastMouseMoveTime;
+      
+      // Decay mouse speed over time when mouse isn't moving
+      if (timeSinceLastMove > 16) { // After one frame (60fps = ~16ms)
+        mouseSpeed *= 0.8; // Decay by 20% each frame
+        if (mouseSpeed < 0.01) {
+          mouseSpeed = 0; // Set to 0 when very small
+        }
+      }
+    }
+
+    function updateHandsPhysics() {
+      // Update mouse speed decay
+      updateMouseSpeed();
+      
+      var spinStrength = 0.2; // How fast hands spin when mouse is over them
+      var returnStrength = 0.0004; // Much much much slower return to original positions
+      var damping = 0.95; // Velocity damping factor
+      var maxVelocity = 3; // Maximum angular velocity
+      var stopThreshold = 0.1; // Threshold to stop motion when near original position
+      
+      for (let y = 0; y < 3; y++) {
+        for (let x = 0; x < 8; x++) {
+          for (let hand = 0; hand < 2; hand++) {
+            var currentAngle = hands[x][y][hand];
+            var currentVelocity = handVelocities[x][y][hand];
+            var isAffected = mouseTargets[x][y][hand];
+            var originalAngle = originalHands[x][y][hand];
+            
+            if (isAffected && mouseActive && mouseSpeed > 0.01) {
+              // Calculate angle away from mouse
+              var space = 110;
+              var halfspace = space / 2;
+              var clockX = halfspace + x * space;
+              var clockY = halfspace + y * space;
+              
+              // Calculate distance from mouse to clock center
+              var distance = Math.sqrt(Math.pow(mouseX - clockX, 2) + Math.pow(mouseY - clockY, 2));
+              var repulsionRadius = 150;
+              
+              // Calculate distance-based scaling (stronger when closer)
+              var distanceScale = 1 - (distance / repulsionRadius);
+              distanceScale = Math.pow(distanceScale, 1.5); // Apply curve for smoother falloff
+              
+              // Calculate angle pointing away from mouse
+              var awayAngle = Math.atan2(clockY - mouseY, clockX - mouseX) * 180 / Math.PI;
+              if (awayAngle < 0) awayAngle += 360;
+              
+              // Calculate shortest angular distance to away angle
+              var angleDiff = awayAngle - currentAngle;
+              if (angleDiff > 180) angleDiff -= 360;
+              if (angleDiff < -180) angleDiff += 360;
+              
+              // Apply force toward away angle, scaled by mouse speed AND distance
+              var speedScale = Math.min(mouseSpeed * 0.1, 1.0); // Scale by mouse speed
+              var totalScale = speedScale * distanceScale; // Combine speed and distance scaling
+              var awayForce = angleDiff * spinStrength * totalScale;
+              handVelocities[x][y][hand] += awayForce;
+            } else {
+              // Return to original position when mouse is not moving or not over
+              var angleDiff = originalAngle - currentAngle;
+              if (angleDiff > 180) angleDiff -= 360;
+              if (angleDiff < -180) angleDiff += 360;
+              
+              if (Math.abs(angleDiff) < stopThreshold) {
+                // Close enough to original position - snap to it and stop
+                hands[x][y][hand] = originalAngle;
+                handVelocities[x][y][hand] = 0;
+              } else {
+                // Drift back to original position, very slowly
+                var returnForce = angleDiff * returnStrength;
+                handVelocities[x][y][hand] += returnForce;
+              }
+            }
+            
+            // Apply damping to all hands
+            handVelocities[x][y][hand] *= damping;
+            
+            // Clamp velocity
+            if (handVelocities[x][y][hand] > maxVelocity) {
+              handVelocities[x][y][hand] = maxVelocity;
+            } else if (handVelocities[x][y][hand] < -maxVelocity) {
+              handVelocities[x][y][hand] = -maxVelocity;
+            }
+            
+            // Update position
+            hands[x][y][hand] += handVelocities[x][y][hand];
+            
+            // Normalize angle to 0-360
+            hands[x][y][hand] = hands[x][y][hand] % 360;
+            if (hands[x][y][hand] < 0) hands[x][y][hand] += 360;
+          }
+        }
+      }
+    }
 
     draw();
 
@@ -273,6 +501,15 @@
           ctx.stroke();
         }
       }
+    }
+
+    function startPhysicsLoop() {
+      function physicsUpdate() {
+        updateHandsPhysics();
+        draw();
+        requestAnimationFrame(physicsUpdate);
+      }
+      physicsUpdate();
     }
   </script>
 </body>
