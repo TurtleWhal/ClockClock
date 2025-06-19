@@ -27,7 +27,7 @@ void MotorUpdateTask(void *pvParameters)
   {
     for (int i = 0; i < 4; i++)
     {
-      modules[i]->minuteStepper->update();
+      // modules[i]->minuteStepper->update();
       modules[i]->hourStepper->update();
     }
     
@@ -299,7 +299,7 @@ void loop()
         // modules[i]->hourStepper->setTargetSpeed(buffer[ofs + i][0] - UINT8_MAX);
         // modules[i]->minuteStepper->setTargetSpeed(buffer[ofs + i][1] - UINT8_MAX);
         modules[i]->hourStepper->applyMotorControl(buffer[ofs + i][0]);
-        modules[i]->minuteStepper->applyMotorControl(buffer[ofs + i][1]);
+        // modules[i]->minuteStepper->applyMotorControl(buffer[ofs + i][1]);
       }
 
       // if (speed)
