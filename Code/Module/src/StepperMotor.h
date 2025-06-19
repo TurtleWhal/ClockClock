@@ -6,6 +6,7 @@ class StepperMotor
 private:
     // Pin assignments
     int pin1A, pin1B, pin2A, pin2B;
+    bool log = false;
 
     // Motor state
     uint16_t currentPosition; // in microsteps
@@ -23,60 +24,77 @@ private:
     unsigned long lastUpdateTime = micros();
 
     bool clockwise = true;
-    
-    const float stepSequence[4 * 8][4] = {
-        {sin(11.25 *  0 * DEG_TO_RAD), 0, cos(11.25 *  0 * DEG_TO_RAD), 0},
-        {sin(11.25 *  1 * DEG_TO_RAD), 0, cos(11.25 *  1 * DEG_TO_RAD), 0},
-        {sin(11.25 *  2 * DEG_TO_RAD), 0, cos(11.25 *  2 * DEG_TO_RAD), 0},
-        {sin(11.25 *  3 * DEG_TO_RAD), 0, cos(11.25 *  3 * DEG_TO_RAD), 0},
-        {sin(11.25 *  4 * DEG_TO_RAD), 0, cos(11.25 *  4 * DEG_TO_RAD), 0},
-        {sin(11.25 *  5 * DEG_TO_RAD), 0, cos(11.25 *  5 * DEG_TO_RAD), 0},
-        {sin(11.25 *  6 * DEG_TO_RAD), 0, cos(11.25 *  6 * DEG_TO_RAD), 0},
-        {sin(11.25 *  7 * DEG_TO_RAD), 0, cos(11.25 *  7 * DEG_TO_RAD), 0},
-        {sin(11.25 *  8 * DEG_TO_RAD), 0, 1 + cos(11.25 *  8 * DEG_TO_RAD), 1},
-        {sin(11.25 *  9 * DEG_TO_RAD), 0, 1 + cos(11.25 *  9 * DEG_TO_RAD), 1},
-        {sin(11.25 * 10 * DEG_TO_RAD), 0, 1 + cos(11.25 * 10 * DEG_TO_RAD), 1},
-        {sin(11.25 * 11 * DEG_TO_RAD), 0, 1 + cos(11.25 * 11 * DEG_TO_RAD), 1},
-        {sin(11.25 * 12 * DEG_TO_RAD), 0, 1 + cos(11.25 * 12 * DEG_TO_RAD), 1},
-        {sin(11.25 * 13 * DEG_TO_RAD), 0, 1 + cos(11.25 * 13 * DEG_TO_RAD), 1},
-        {sin(11.25 * 14 * DEG_TO_RAD), 0, 1 + cos(11.25 * 14 * DEG_TO_RAD), 1},
-        {sin(11.25 * 15 * DEG_TO_RAD), 0, 1 + cos(11.25 * 15 * DEG_TO_RAD), 1},
-        {1 + sin(11.25 * 16 * DEG_TO_RAD), 1, 1 + cos(11.25 * 16 * DEG_TO_RAD), 1},
-        {1 + sin(11.25 * 17 * DEG_TO_RAD), 1, 1 + cos(11.25 * 17 * DEG_TO_RAD), 1},
-        {1 + sin(11.25 * 18 * DEG_TO_RAD), 1, 1 + cos(11.25 * 18 * DEG_TO_RAD), 1},
-        {1 + sin(11.25 * 19 * DEG_TO_RAD), 1, 1 + cos(11.25 * 19 * DEG_TO_RAD), 1},
-        {1 + sin(11.25 * 20 * DEG_TO_RAD), 1, 1 + cos(11.25 * 20 * DEG_TO_RAD), 1},
-        {1 + sin(11.25 * 21 * DEG_TO_RAD), 1, 1 + cos(11.25 * 21 * DEG_TO_RAD), 1},
-        {1 + sin(11.25 * 22 * DEG_TO_RAD), 1, 1 + cos(11.25 * 22 * DEG_TO_RAD), 1},
-        {1 + sin(11.25 * 23 * DEG_TO_RAD), 1, 1 + cos(11.25 * 23 * DEG_TO_RAD), 1},
-        {1 + sin(11.25 * 24 * DEG_TO_RAD), 1, cos(11.25 * 24 * DEG_TO_RAD), 0},
-        {1 + sin(11.25 * 25 * DEG_TO_RAD), 1, cos(11.25 * 25 * DEG_TO_RAD), 0},
-        {1 + sin(11.25 * 26 * DEG_TO_RAD), 1, cos(11.25 * 26 * DEG_TO_RAD), 0},
-        {1 + sin(11.25 * 27 * DEG_TO_RAD), 1, cos(11.25 * 27 * DEG_TO_RAD), 0},
-        {1 + sin(11.25 * 28 * DEG_TO_RAD), 1, cos(11.25 * 28 * DEG_TO_RAD), 0},
-        {1 + sin(11.25 * 29 * DEG_TO_RAD), 1, cos(11.25 * 29 * DEG_TO_RAD), 0},
-        {1 + sin(11.25 * 30 * DEG_TO_RAD), 1, cos(11.25 * 30 * DEG_TO_RAD), 0},
-        {1 + sin(11.25 * 31 * DEG_TO_RAD), 1, cos(11.25 * 31 * DEG_TO_RAD), 0},
-    };
+
+    // const float stepSequence[4 * 8][4] = {
+    //     {sin(11.25 *  0 * DEG_TO_RAD), 0, cos(11.25 *  0 * DEG_TO_RAD), 0},
+    //     {sin(11.25 *  1 * DEG_TO_RAD), 0, cos(11.25 *  1 * DEG_TO_RAD), 0},
+    //     {sin(11.25 *  2 * DEG_TO_RAD), 0, cos(11.25 *  2 * DEG_TO_RAD), 0},
+    //     {sin(11.25 *  3 * DEG_TO_RAD), 0, cos(11.25 *  3 * DEG_TO_RAD), 0},
+    //     {sin(11.25 *  4 * DEG_TO_RAD), 0, cos(11.25 *  4 * DEG_TO_RAD), 0},
+    //     {sin(11.25 *  5 * DEG_TO_RAD), 0, cos(11.25 *  5 * DEG_TO_RAD), 0},
+    //     {sin(11.25 *  6 * DEG_TO_RAD), 0, cos(11.25 *  6 * DEG_TO_RAD), 0},
+    //     {sin(11.25 *  7 * DEG_TO_RAD), 0, cos(11.25 *  7 * DEG_TO_RAD), 0},
+    //     {sin(11.25 *  8 * DEG_TO_RAD), 0, 1 + cos(11.25 *  8 * DEG_TO_RAD), 1},
+    //     {sin(11.25 *  9 * DEG_TO_RAD), 0, 1 + cos(11.25 *  9 * DEG_TO_RAD), 1},
+    //     {sin(11.25 * 10 * DEG_TO_RAD), 0, 1 + cos(11.25 * 10 * DEG_TO_RAD), 1},
+    //     {sin(11.25 * 11 * DEG_TO_RAD), 0, 1 + cos(11.25 * 11 * DEG_TO_RAD), 1},
+    //     {sin(11.25 * 12 * DEG_TO_RAD), 0, 1 + cos(11.25 * 12 * DEG_TO_RAD), 1},
+    //     {sin(11.25 * 13 * DEG_TO_RAD), 0, 1 + cos(11.25 * 13 * DEG_TO_RAD), 1},
+    //     {sin(11.25 * 14 * DEG_TO_RAD), 0, 1 + cos(11.25 * 14 * DEG_TO_RAD), 1},
+    //     {sin(11.25 * 15 * DEG_TO_RAD), 0, 1 + cos(11.25 * 15 * DEG_TO_RAD), 1},
+    //     {1 + sin(11.25 * 16 * DEG_TO_RAD), 1, 1 + cos(11.25 * 16 * DEG_TO_RAD), 1},
+    //     {1 + sin(11.25 * 17 * DEG_TO_RAD), 1, 1 + cos(11.25 * 17 * DEG_TO_RAD), 1},
+    //     {1 + sin(11.25 * 18 * DEG_TO_RAD), 1, 1 + cos(11.25 * 18 * DEG_TO_RAD), 1},
+    //     {1 + sin(11.25 * 19 * DEG_TO_RAD), 1, 1 + cos(11.25 * 19 * DEG_TO_RAD), 1},
+    //     {1 + sin(11.25 * 20 * DEG_TO_RAD), 1, 1 + cos(11.25 * 20 * DEG_TO_RAD), 1},
+    //     {1 + sin(11.25 * 21 * DEG_TO_RAD), 1, 1 + cos(11.25 * 21 * DEG_TO_RAD), 1},
+    //     {1 + sin(11.25 * 22 * DEG_TO_RAD), 1, 1 + cos(11.25 * 22 * DEG_TO_RAD), 1},
+    //     {1 + sin(11.25 * 23 * DEG_TO_RAD), 1, 1 + cos(11.25 * 23 * DEG_TO_RAD), 1},
+    //     {1 + sin(11.25 * 24 * DEG_TO_RAD), 1, cos(11.25 * 24 * DEG_TO_RAD), 0},
+    //     {1 + sin(11.25 * 25 * DEG_TO_RAD), 1, cos(11.25 * 25 * DEG_TO_RAD), 0},
+    //     {1 + sin(11.25 * 26 * DEG_TO_RAD), 1, cos(11.25 * 26 * DEG_TO_RAD), 0},
+    //     {1 + sin(11.25 * 27 * DEG_TO_RAD), 1, cos(11.25 * 27 * DEG_TO_RAD), 0},
+    //     {1 + sin(11.25 * 28 * DEG_TO_RAD), 1, cos(11.25 * 28 * DEG_TO_RAD), 0},
+    //     {1 + sin(11.25 * 29 * DEG_TO_RAD), 1, cos(11.25 * 29 * DEG_TO_RAD), 0},
+    //     {1 + sin(11.25 * 30 * DEG_TO_RAD), 1, cos(11.25 * 30 * DEG_TO_RAD), 0},
+    //     {1 + sin(11.25 * 31 * DEG_TO_RAD), 1, cos(11.25 * 31 * DEG_TO_RAD), 0},
+    // };
 
     void writeStep(uint16_t microStep)
     {
-        uint8_t step = microStep % (4 * MICROSTEPS);
-        analogWrite(pin1A, stepSequence[step][0]);
-        digitalWrite(pin1B, stepSequence[step][1]);
-        analogWrite(pin2A, stepSequence[step][2]);
-        digitalWrite(pin2B, stepSequence[step][3]);
+        // uint8_t step = microStep % (4 * MICROSTEPS);
+        // analogWrite(pin1A, stepSequence[step][0]);
+        // digitalWrite(pin1B, stepSequence[step][1]);
+        // analogWrite(pin2A, stepSequence[step][2]);
+        // digitalWrite(pin2B, stepSequence[step][3]);
+
+        // for (double i = 0; i < PI * 2; i += PI / 16)
+        // {
+
+        float i = (2 * PI / MICROSTEPS) * (microStep / 4 % MICROSTEPS);
+
+        float sineA = sin(i);
+        uint8_t raiseA = sineA <= 0 ? 1 : 0;
+        analogWrite(pin1A, (sineA + raiseA) * 255);
+        digitalWrite(pin1B, raiseA);
+
+        float sineB = sin(i + (PI / 2));
+        uint8_t raiseB = sineB <= 0 ? 1 : 0;
+        analogWrite(pin2A, (sineB + raiseB) * 255);
+        digitalWrite(pin2B, raiseB);
+
+        // }
     }
 
 public:
-    static const uint8_t MICROSTEPS = 8;
+    static const uint8_t MICROSTEPS = 16;
     static const uint16_t STEPS_PER_REVOLUTION = 720;                                     // Logical steps (user-facing)
     static const uint16_t MICRO_STEPS_PER_REVOLUTION = STEPS_PER_REVOLUTION * MICROSTEPS; // Physical microsteps
     static const uint16_t MICRO_STEPS_PER_DEGREE = MICRO_STEPS_PER_REVOLUTION / 360;      // Physical microsteps
 
-    StepperMotor(int pin1A, int pin1B, int pin2A, int pin2B)
+    StepperMotor(int pin1A, int pin1B, int pin2A, int pin2B, bool log = false)
         : pin1A(pin1A), pin1B(pin1B), pin2A(pin2A), pin2B(pin2B),
-          currentPosition(0), isRunning(false)
+          currentPosition(0), isRunning(false), log(log)
     {
         // Initialize pins
         pinMode(pin1A, OUTPUT);
@@ -161,9 +179,9 @@ public:
             }
         }
 
-        if (pin1A == 4)
+        if (log)
         {
-            Serial.printf(">speed:%f\n>target:%f\n>position:%f\n", currentSpeed, targetPosition / MICRO_STEPS_PER_DEGREE, currentPosition / (float)MICRO_STEPS_PER_DEGREE);
+            Serial.printf(">speed:%f\n>target:%f\n>position:%f\n>nexttime:%d\n", currentSpeed, targetPosition / MICRO_STEPS_PER_DEGREE, currentPosition / (float)MICRO_STEPS_PER_DEGREE, nextStepTime - currentTime);
         }
 
         if (!isRunning)
