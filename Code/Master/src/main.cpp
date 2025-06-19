@@ -267,19 +267,19 @@ void loop()
     {
       clearBuffer();
 
-      // for (int i = 0; i < WIDTH; i++)
-      // {
-      //   for (int j = 0; j < HEIGHT; j++)
-      //   {
-      //     buffer[i][j][0].position = 135;
-      //     buffer[i][j][1].position = 315;
-      //     buffer[i][j][0].direction = MOTOR_CW;
-      //     buffer[i][j][1].direction = MOTOR_CW;
-      //   }
-      // }
+      for (int i = 0; i < WIDTH; i++)
+      {
+        for (int j = 0; j < HEIGHT; j++)
+        {
+          buffer[i][j][0].position = 135;
+          buffer[i][j][1].position = 315;
+          buffer[i][j][0].direction = MOTOR_CW;
+          buffer[i][j][1].direction = MOTOR_CW;
+        }
+      }
       
-      // writeBuffer();
-      // delay(CLEAR_DELAY);
+      writeBuffer();
+      delay(CLEAR_DELAY);
       
       for (int i = 0; i < WIDTH; i++)
       {
@@ -295,8 +295,8 @@ void loop()
           buffer[i][j][1].direction = MOTOR_CW;
         }
         
-        // writeBuffer();
-        // delay(600);
+        writeBuffer();
+        delay(600);
       }
       writeBuffer();
     }
@@ -307,16 +307,16 @@ void loop()
     {
       clearBuffer();
       
-      // for (int i = 0; i < WIDTH; i++)
-      // {
-      //   for (int j = 0; j < HEIGHT; j++)
-      //   {
-      //     buffer[i][j][0].position = 90;
-      //     buffer[i][j][1].position = 270;
-      //     buffer[i][j][0].direction = MOTOR_CCW;
-      //     buffer[i][j][1].direction = MOTOR_CW;
-      //   }
-      // }
+      for (int i = 0; i < WIDTH; i++)
+      {
+        for (int j = 0; j < HEIGHT; j++)
+        {
+          buffer[i][j][0].position = 90;
+          buffer[i][j][1].position = 270;
+          buffer[i][j][0].direction = MOTOR_CCW;
+          buffer[i][j][1].direction = MOTOR_CW;
+        }
+      }
       
       // writeBuffer();
       // delay(CLEAR_DELAY);
@@ -335,8 +335,8 @@ void loop()
           buffer[i][j][1].direction = MOTOR_CW;
         }
 
-        // writeBuffer();
-        // delay(400);
+        writeBuffer();
+        delay(400);
       }
       writeBuffer();
     }
