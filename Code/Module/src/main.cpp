@@ -28,7 +28,7 @@ void MotorUpdateTask(void *pvParameters)
     for (int i = 0; i < 4; i++)
     {
       // modules[i]->minuteStepper->update();
-      modules[i]->hourStepper->update();
+      // modules[i]->hourStepper->update();
     }
     
     vTaskDelay(1 / portTICK_PERIOD_MS); // Delay to prevent task starvation
@@ -131,14 +131,23 @@ void setup()
   modules[2] = new ClockModule(2);
   modules[3] = new ClockModule(3);
 
-  xTaskCreatePinnedToCore(
-      MotorUpdateTask,
-      "MotorUpdate",
-      4096,
-      NULL,
-      1,
-      NULL,
-      0); // Run on core 0
+  // xTaskCreatePinnedToCore(
+  //     MotorUpdateTask,
+  //     "MotorUpdate",
+  //     4096,
+  //     NULL,
+  //     1,
+  //     NULL,
+  //     0); // Run on core 0
+
+  // int step = 0;
+  // while (true) {
+  //   modules[0]->hourStepper->writeStep(step);
+  //   step = step + 1;
+
+  //   // delayMicroseconds(10000);
+  //   delayMicroseconds(8000 / MICROSTEPS);
+  // }
 }
 
 bool firmwareUpdate = false;

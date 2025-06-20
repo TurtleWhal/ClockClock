@@ -1,6 +1,11 @@
 #include "Arduino.h"
 #include "../../Master/src/motorcontrol.h"
 
+#define MICROSTEPS 16
+#define STEPS_PER_REVOLUTION 720                                       // Logical steps (user-facing)
+#define MICRO_STEPS_PER_REVOLUTION (STEPS_PER_REVOLUTION * MICROSTEPS) // Physical microsteps
+#define MICRO_STEPS_PER_DEGREE (MICRO_STEPS_PER_REVOLUTION / 360)      // Physical microsteps
+
 class StepperMotor
 {
 private:
@@ -25,85 +30,166 @@ private:
 
     bool clockwise = true;
 
-    // const float stepSequence[4 * 8][4] = {
-    //     {sin(11.25 *  0 * DEG_TO_RAD), 0, cos(11.25 *  0 * DEG_TO_RAD), 0},
-    //     {sin(11.25 *  1 * DEG_TO_RAD), 0, cos(11.25 *  1 * DEG_TO_RAD), 0},
-    //     {sin(11.25 *  2 * DEG_TO_RAD), 0, cos(11.25 *  2 * DEG_TO_RAD), 0},
-    //     {sin(11.25 *  3 * DEG_TO_RAD), 0, cos(11.25 *  3 * DEG_TO_RAD), 0},
-    //     {sin(11.25 *  4 * DEG_TO_RAD), 0, cos(11.25 *  4 * DEG_TO_RAD), 0},
-    //     {sin(11.25 *  5 * DEG_TO_RAD), 0, cos(11.25 *  5 * DEG_TO_RAD), 0},
-    //     {sin(11.25 *  6 * DEG_TO_RAD), 0, cos(11.25 *  6 * DEG_TO_RAD), 0},
-    //     {sin(11.25 *  7 * DEG_TO_RAD), 0, cos(11.25 *  7 * DEG_TO_RAD), 0},
-    //     {sin(11.25 *  8 * DEG_TO_RAD), 0, 1 + cos(11.25 *  8 * DEG_TO_RAD), 1},
-    //     {sin(11.25 *  9 * DEG_TO_RAD), 0, 1 + cos(11.25 *  9 * DEG_TO_RAD), 1},
-    //     {sin(11.25 * 10 * DEG_TO_RAD), 0, 1 + cos(11.25 * 10 * DEG_TO_RAD), 1},
-    //     {sin(11.25 * 11 * DEG_TO_RAD), 0, 1 + cos(11.25 * 11 * DEG_TO_RAD), 1},
-    //     {sin(11.25 * 12 * DEG_TO_RAD), 0, 1 + cos(11.25 * 12 * DEG_TO_RAD), 1},
-    //     {sin(11.25 * 13 * DEG_TO_RAD), 0, 1 + cos(11.25 * 13 * DEG_TO_RAD), 1},
-    //     {sin(11.25 * 14 * DEG_TO_RAD), 0, 1 + cos(11.25 * 14 * DEG_TO_RAD), 1},
-    //     {sin(11.25 * 15 * DEG_TO_RAD), 0, 1 + cos(11.25 * 15 * DEG_TO_RAD), 1},
-    //     {1 + sin(11.25 * 16 * DEG_TO_RAD), 1, 1 + cos(11.25 * 16 * DEG_TO_RAD), 1},
-    //     {1 + sin(11.25 * 17 * DEG_TO_RAD), 1, 1 + cos(11.25 * 17 * DEG_TO_RAD), 1},
-    //     {1 + sin(11.25 * 18 * DEG_TO_RAD), 1, 1 + cos(11.25 * 18 * DEG_TO_RAD), 1},
-    //     {1 + sin(11.25 * 19 * DEG_TO_RAD), 1, 1 + cos(11.25 * 19 * DEG_TO_RAD), 1},
-    //     {1 + sin(11.25 * 20 * DEG_TO_RAD), 1, 1 + cos(11.25 * 20 * DEG_TO_RAD), 1},
-    //     {1 + sin(11.25 * 21 * DEG_TO_RAD), 1, 1 + cos(11.25 * 21 * DEG_TO_RAD), 1},
-    //     {1 + sin(11.25 * 22 * DEG_TO_RAD), 1, 1 + cos(11.25 * 22 * DEG_TO_RAD), 1},
-    //     {1 + sin(11.25 * 23 * DEG_TO_RAD), 1, 1 + cos(11.25 * 23 * DEG_TO_RAD), 1},
-    //     {1 + sin(11.25 * 24 * DEG_TO_RAD), 1, cos(11.25 * 24 * DEG_TO_RAD), 0},
-    //     {1 + sin(11.25 * 25 * DEG_TO_RAD), 1, cos(11.25 * 25 * DEG_TO_RAD), 0},
-    //     {1 + sin(11.25 * 26 * DEG_TO_RAD), 1, cos(11.25 * 26 * DEG_TO_RAD), 0},
-    //     {1 + sin(11.25 * 27 * DEG_TO_RAD), 1, cos(11.25 * 27 * DEG_TO_RAD), 0},
-    //     {1 + sin(11.25 * 28 * DEG_TO_RAD), 1, cos(11.25 * 28 * DEG_TO_RAD), 0},
-    //     {1 + sin(11.25 * 29 * DEG_TO_RAD), 1, cos(11.25 * 29 * DEG_TO_RAD), 0},
-    //     {1 + sin(11.25 * 30 * DEG_TO_RAD), 1, cos(11.25 * 30 * DEG_TO_RAD), 0},
-    //     {1 + sin(11.25 * 31 * DEG_TO_RAD), 1, cos(11.25 * 31 * DEG_TO_RAD), 0},
-    // };
+    uint8_t microstepTable[MICROSTEPS];
+    bool tableInitialized = false;
 
-    void writeStep(uint16_t microStep)
+    void generateMicrostepTable()
     {
-        // uint8_t step = microStep % (4 * MICROSTEPS);
-        // analogWrite(pin1A, stepSequence[step][0]);
-        // digitalWrite(pin1B, stepSequence[step][1]);
-        // analogWrite(pin2A, stepSequence[step][2]);
-        // digitalWrite(pin2B, stepSequence[step][3]);
-
-        // for (double i = 0; i < PI * 2; i += PI / 16)
-        // {
-
-        float i = (2 * PI / MICROSTEPS) * (microStep / 4 % MICROSTEPS);
-
-        float sineA = sin(i);
-        uint8_t raiseA = sineA <= 0 ? 1 : 0;
-        analogWrite(pin1A, (sineA + raiseA) * 255);
-        digitalWrite(pin1B, raiseA);
-
-        float sineB = sin(i + (PI / 2));
-        uint8_t raiseB = sineB <= 0 ? 1 : 0;
-        analogWrite(pin2A, (sineB + raiseB) * 255);
-        digitalWrite(pin2B, raiseB);
-
-        // }
+        for (uint8_t i = 0; i < MICROSTEPS; ++i)
+        {
+            float angle = 2 * PI * i / MICROSTEPS;
+            float value = sin(angle);
+            uint8_t pwm = (uint8_t)((value + 1.0) * 127.5); // Scale to 0-255
+            microstepTable[i] = pwm;
+        }
+        tableInitialized = true;
     }
 
-public:
-    static const uint8_t MICROSTEPS = 16;
-    static const uint16_t STEPS_PER_REVOLUTION = 720;                                     // Logical steps (user-facing)
-    static const uint16_t MICRO_STEPS_PER_REVOLUTION = STEPS_PER_REVOLUTION * MICROSTEPS; // Physical microsteps
-    static const uint16_t MICRO_STEPS_PER_DEGREE = MICRO_STEPS_PER_REVOLUTION / 360;      // Physical microsteps
+    void update(void *arg)
+    {
+        esp_timer_start_once(timer, 500); // delay in microseconds
 
+        unsigned long currentTime = micros();
+        unsigned long elapsedTime = currentTime - lastUpdateTime;
+        lastUpdateTime = currentTime;
+
+        if (continuous)
+        {
+            targetPosition += ((elapsedTime * targetSpeed * MICRO_STEPS_PER_DEGREE) / 1000000.0) * (clockwise ? 1 : -1);
+
+            if (currentPosition >= MICRO_STEPS_PER_REVOLUTION)
+            {
+                currentPosition %= MICRO_STEPS_PER_REVOLUTION;
+                targetPosition = fmod(targetPosition, MICRO_STEPS_PER_REVOLUTION);
+            }
+        }
+
+        if (log)
+        {
+            Serial.printf(">speed:%f\n>target:%f\n>position:%f\n", currentSpeed, targetPosition / MICRO_STEPS_PER_DEGREE, currentPosition / (float)MICRO_STEPS_PER_DEGREE);
+            Serial.flush();
+        }
+
+        if (!isRunning)
+            return;
+
+        // Stop if reached target (for non-continuous mode)
+        if (!continuous && abs((int)(currentPosition - targetPosition)) < 1)
+        {
+            isRunning = false;
+            currentSpeed = 0;
+            return;
+        }
+
+        // float decelerationTime = currentSpeed / acceleration; // Time to stop in seconds
+        float decelerationDist = (currentSpeed * currentSpeed) / (2 * acceleration); // Distance to stop in degrees
+
+        // Calculate distance to target in the direction of movement (clockwise or counterclockwise), accounting for wrap-around
+        uint16_t pos = currentPosition % MICRO_STEPS_PER_REVOLUTION;
+        uint16_t tgt = ((int)targetPosition + MICRO_STEPS_PER_REVOLUTION) % MICRO_STEPS_PER_REVOLUTION;
+        int16_t dist;
+        if (clockwise)
+        {
+            dist = tgt - pos;
+            if (dist < 0)
+                dist += MICRO_STEPS_PER_REVOLUTION;
+        }
+        else
+        {
+            dist = pos - tgt;
+            if (dist < 0)
+                dist += MICRO_STEPS_PER_REVOLUTION;
+        }
+        dist /= MICRO_STEPS_PER_DEGREE;
+
+        if (dist <= decelerationDist)
+        {
+            // Decelerate
+            currentSpeed -= (acceleration * elapsedTime) / 1000000.0;
+        }
+        else
+        {
+            // Accelerate
+            if (currentSpeed < targetSpeed || continuous) // Max speed limit
+                currentSpeed += (acceleration * elapsedTime) / 1000000.0;
+        }
+
+        if (currentTime >= nextStepTime)
+        {
+            if (clockwise)
+            {
+                currentPosition = (currentPosition + 1) % MICRO_STEPS_PER_REVOLUTION;
+            }
+            else
+            {
+                currentPosition = (currentPosition == 0) ? (MICRO_STEPS_PER_REVOLUTION - 1) : (currentPosition - 1);
+            }
+
+            writeStep(currentPosition);
+            nextStepTime = currentTime + (1000000 / (currentSpeed * MICRO_STEPS_PER_DEGREE)); // Calculate next step time based on speed
+        }
+
+        // esp_timer_start_once(timer, 500); // delay in microseconds
+        // esp_timer_start_once(timer, (1000000 / (currentSpeed * MICRO_STEPS_PER_DEGREE))); // delay in microseconds
+    }
+
+    const esp_timer_create_args_t timer_args = {
+        .callback = [](void *arg)
+        {
+            StepperMotor *motor = static_cast<StepperMotor *>(arg);
+            motor->update(arg);
+        },
+        .arg = (void *)this, // arbitrary argument to pass to callback
+        .name = "StepperTimer"};
+
+    esp_timer_handle_t timer;
+
+public:
     StepperMotor(int pin1A, int pin1B, int pin2A, int pin2B, bool log = false)
         : pin1A(pin1A), pin1B(pin1B), pin2A(pin2A), pin2B(pin2B),
           currentPosition(0), isRunning(false), log(log)
     {
+        if (!tableInitialized)
+        {
+            generateMicrostepTable();
+        }
         // Initialize pins
         pinMode(pin1A, OUTPUT);
         pinMode(pin1B, OUTPUT);
         pinMode(pin2A, OUTPUT);
         pinMode(pin2B, OUTPUT);
 
+        analogWriteFrequency(pin1A, 10000); // 20kHz
+        analogWriteFrequency(pin2A, 10000); // 20kHz
+
         // Set initial position
         writeStep(currentPosition);
+
+        esp_timer_create(&timer_args, &timer);
+    }
+
+    void writeStep(uint16_t microStep)
+    {
+        // uint8_t step = (microStep) % MICROSTEPS;
+        // uint8_t step90 = (step + MICROSTEPS / 4) % MICROSTEPS; // 90 degree phase shift
+
+        // analogWrite(pin1A, microstepTable[step]);
+        // digitalWrite(pin1B, microstepTable[step] < 128 ? 1 : 0);
+
+        // analogWrite(pin2A, microstepTable[step90]);
+        // digitalWrite(pin2B, microstepTable[step90] < 128 ? 1 : 0);
+
+        float i = ((microStep % (MICROSTEPS * 4)) * (PI * 2)) / (MICROSTEPS * 4.0f);
+
+        float sineA = sinf(i);
+        uint8_t raiseA = sineA <= 0 ? 1 : 0;
+        analogWrite(pin1A, (sineA + raiseA) * 255);
+        digitalWrite(pin1B, raiseA);
+
+        float sineB = cosf(i);
+        uint8_t raiseB = sineB <= 0 ? 1 : 0;
+        analogWrite(pin2A, (sineB + raiseB) * 255);
+        digitalWrite(pin2B, raiseB);
     }
 
     void applyMotorControl(const MotorControl_t &control)
@@ -160,88 +246,8 @@ public:
             isRunning = true;
             continuous = true;
         }
-    }
 
-    void update()
-    {
-        unsigned long currentTime = micros();
-        unsigned long elapsedTime = currentTime - lastUpdateTime;
-        lastUpdateTime = currentTime;
-
-        if (continuous)
-        {
-            targetPosition += ((elapsedTime * targetSpeed * MICRO_STEPS_PER_DEGREE) / 1000000.0) * (clockwise ? 1 : -1);
-
-            if (currentPosition >= MICRO_STEPS_PER_REVOLUTION)
-            {
-                currentPosition %= MICRO_STEPS_PER_REVOLUTION;
-                targetPosition = fmod(targetPosition, MICRO_STEPS_PER_REVOLUTION);
-            }
-        }
-
-        if (log)
-        {
-            Serial.printf(">speed:%f\n>target:%f\n>position:%f\n>nexttime:%d\n", currentSpeed, targetPosition / MICRO_STEPS_PER_DEGREE, currentPosition / (float)MICRO_STEPS_PER_DEGREE, nextStepTime - currentTime);
-        }
-
-        if (!isRunning)
-            return;
-
-        // Stop if reached target (for non-continuous mode)
-        if (!continuous && abs((int)(currentPosition - targetPosition)) < 1)
-        {
-            isRunning = false;
-            currentSpeed = 0;
-            return;
-        }
-
-        // float decelerationTime = currentSpeed / acceleration; // Time to stop in seconds
-        float decelerationDist = (currentSpeed * currentSpeed) / (2 * acceleration); // Distance to stop in degrees
-
-        // Calculate distance to target in the direction of movement (clockwise or counterclockwise), accounting for wrap-around
-        uint16_t pos = currentPosition % MICRO_STEPS_PER_REVOLUTION;
-        uint16_t tgt = ((int)targetPosition + MICRO_STEPS_PER_REVOLUTION) % MICRO_STEPS_PER_REVOLUTION;
-        int16_t dist;
-        if (clockwise)
-        {
-            dist = tgt - pos;
-            if (dist < 0)
-                dist += MICRO_STEPS_PER_REVOLUTION;
-        }
-        else
-        {
-            dist = pos - tgt;
-            if (dist < 0)
-                dist += MICRO_STEPS_PER_REVOLUTION;
-        }
-        dist /= MICRO_STEPS_PER_DEGREE;
-
-        if (dist <= decelerationDist)
-        {
-            // Decelerate
-            currentSpeed -= (acceleration * elapsedTime) / 1000000.0;
-        }
-        else
-        {
-            // Accelerate
-            if (currentSpeed < targetSpeed || continuous) // Max speed limit
-                currentSpeed += (acceleration * elapsedTime) / 1000000.0;
-        }
-
-        if (currentTime < nextStepTime)
-            return; // Not time to step yet
-
-        if (clockwise)
-        {
-            currentPosition = (currentPosition + 1) % MICRO_STEPS_PER_REVOLUTION;
-        }
-        else
-        {
-            currentPosition = (currentPosition == 0) ? (MICRO_STEPS_PER_REVOLUTION - 1) : (currentPosition - 1);
-        }
-
-        writeStep(currentPosition);
-        nextStepTime = currentTime + (1000000 / (currentSpeed * MICRO_STEPS_PER_DEGREE)); // Calculate next step time based on speed
+        esp_timer_start_once(timer, 0); // Start immediately
     }
 
     // Utility functions
