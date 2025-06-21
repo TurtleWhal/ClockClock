@@ -1,10 +1,11 @@
 #include "Arduino.h"
 #include "../../Master/src/motorcontrol.h"
 
-#define MICROSTEPS 16
+#define MICROSTEPS 20
 #define STEPS_PER_REVOLUTION 720                                       // Logical steps (user-facing)
 #define MICRO_STEPS_PER_REVOLUTION (STEPS_PER_REVOLUTION * MICROSTEPS) // Physical microsteps
 #define MICRO_STEPS_PER_DEGREE (MICRO_STEPS_PER_REVOLUTION / 360)      // Physical microsteps
+#define STEP_AMPLITUDE 1.0f
 
 class StepperMotor
 {
@@ -30,19 +31,17 @@ private:
 
     bool clockwise = true;
 
-    uint8_t microstepTable[MICROSTEPS];
-    bool tableInitialized = false;
+    uint8_t sinTable[MICROSTEPS * 4];
+    // uint8_t cosTable[MICROSTEPS * 4];
 
     void generateMicrostepTable()
     {
-        for (uint8_t i = 0; i < MICROSTEPS; ++i)
+        for (uint8_t i = 0; i < MICROSTEPS * 4; i++)
         {
-            float angle = 2 * PI * i / MICROSTEPS;
-            float value = sin(angle);
-            uint8_t pwm = (uint8_t)((value + 1.0) * 127.5); // Scale to 0-255
-            microstepTable[i] = pwm;
+            float rad = ((i % (MICROSTEPS * 4)) * (PI * 2)) / (MICROSTEPS * 4.0f);
+
+            sinTable[i] = sinf(rad) * 255 * STEP_AMPLITUDE; // will have the right behaviour when sin is negative when it wraps around
         }
-        tableInitialized = true;
     }
 
     void update(void *arg)
@@ -149,10 +148,8 @@ public:
         : pin1A(pin1A), pin1B(pin1B), pin2A(pin2A), pin2B(pin2B),
           currentPosition(0), isRunning(false), log(log)
     {
-        if (!tableInitialized)
-        {
-            generateMicrostepTable();
-        }
+        generateMicrostepTable();
+
         // Initialize pins
         pinMode(pin1A, OUTPUT);
         pinMode(pin1B, OUTPUT);
@@ -170,26 +167,27 @@ public:
 
     void writeStep(uint16_t microStep)
     {
-        // uint8_t step = (microStep) % MICROSTEPS;
-        // uint8_t step90 = (step + MICROSTEPS / 4) % MICROSTEPS; // 90 degree phase shift
+        uint8_t step = (microStep) % (MICROSTEPS * 4);
+        uint8_t step90 = (step + MICROSTEPS) % (MICROSTEPS * 4); // 90 degrees offset
 
-        // analogWrite(pin1A, microstepTable[step]);
-        // digitalWrite(pin1B, microstepTable[step] < 128 ? 1 : 0);
+        analogWrite(pin1A, sinTable[step]);
+        digitalWrite(pin1B, step <= (MICROSTEPS * 2) ? LOW : HIGH);
+        
+        analogWrite(pin2A, sinTable[step90]);
+        digitalWrite(pin2B, step90 <= (MICROSTEPS * 2) ? LOW : HIGH);
 
-        // analogWrite(pin2A, microstepTable[step90]);
-        // digitalWrite(pin2B, microstepTable[step90] < 128 ? 1 : 0);
 
-        float i = ((microStep % (MICROSTEPS * 4)) * (PI * 2)) / (MICROSTEPS * 4.0f);
+        // float i = ((microStep % (MICROSTEPS * 4)) * (PI * 2)) / (MICROSTEPS * 4.0f);
 
-        float sineA = sinf(i);
-        uint8_t raiseA = sineA <= 0 ? 1 : 0;
-        analogWrite(pin1A, (sineA + raiseA) * 255);
-        digitalWrite(pin1B, raiseA);
+        // float sineA = sinf(i);
+        // uint8_t raiseA = sineA <= 0 ? 1 : 0;
+        // analogWrite(pin1A, (sineA + raiseA) * 255 * STEP_AMPLITUDE);
+        // digitalWrite(pin1B, raiseA);
 
-        float sineB = cosf(i);
-        uint8_t raiseB = sineB <= 0 ? 1 : 0;
-        analogWrite(pin2A, (sineB + raiseB) * 255);
-        digitalWrite(pin2B, raiseB);
+        // float sineB = cosf(i);
+        // uint8_t raiseB = sineB <= 0 ? 1 : 0;
+        // analogWrite(pin2A, (sineB + raiseB) * 255 * STEP_AMPLITUDE);
+        // digitalWrite(pin2B, raiseB);
     }
 
     void applyMotorControl(const MotorControl_t &control)

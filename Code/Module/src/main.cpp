@@ -50,81 +50,76 @@ void setup()
   Serial.print(" at ");
   Serial.println(VERSION_TIME);
 
-  log_d("Total heap: %d", ESP.getHeapSize());
-  log_d("Free heap: %d", ESP.getFreeHeap());
-  log_d("Total PSRAM: %d", ESP.getPsramSize());
-  log_d("Used PSRAM: %d", ESP.getPsramSize() - ESP.getFreePsram());
-  log_d("Free PSRAM: %d", ESP.getFreePsram());
-  log_d("Creating Buffer!");
+  // log_d("Total heap: %d", ESP.getHeapSize());
+  // log_d("Free heap: %d", ESP.getFreeHeap());
+  // log_d("Total PSRAM: %d", ESP.getPsramSize());
+  // log_d("Used PSRAM: %d", ESP.getPsramSize() - ESP.getFreePsram());
+  // log_d("Free PSRAM: %d", ESP.getFreePsram());
+  // log_d("Creating Buffer!");
 
-  largeBuffer = (byte *)ps_malloc(BUFFER_SIZE); // For FW updates
+  // largeBuffer = (byte *)ps_malloc(BUFFER_SIZE); // For FW updates
 
-  log_d("Used PSRAM: %d", ESP.getPsramSize() - ESP.getFreePsram());
-  log_d("Free PSRAM: %d", ESP.getFreePsram());
+  // log_d("Used PSRAM: %d", ESP.getPsramSize() - ESP.getFreePsram());
+  // log_d("Free PSRAM: %d", ESP.getFreePsram());
 
-  pinMode(UART_A, INPUT_PULLDOWN);
-  pinMode(UART_B, INPUT_PULLDOWN);
+  // pinMode(UART_A, INPUT_PULLDOWN);
+  // pinMode(UART_B, INPUT_PULLDOWN);
 
-  Serial1.setPins(UART_A, -1); // No output pin, only RX
-  Serial2.setPins(UART_B, -1);
-  Serial1.begin(BAUDRATE);
-  Serial2.begin(BAUDRATE);
+  // Serial1.setPins(UART_A, -1); // No output pin, only RX
+  // Serial2.setPins(UART_B, -1);
+  // Serial1.begin(BAUDRATE);
+  // Serial2.begin(BAUDRATE);
 
-  Serial1.flush();
-  Serial2.flush();
+  // Serial1.flush();
+  // Serial2.flush();
 
-  Serial.print("Listening for input pins ");
+  // Serial.print("Listening for input pins ");
 
-  bool listening = true;
+  // bool listening = true;
 
-  while (listening) // wait until previous module sends message to determine input and output pins
-  {
-    if (Serial1.available() > 10)
-    {
-      in = UART_A;
-      out = UART_B;
-      listening = false;
-      Serial.println("");
-      Serial.println("Using UART_A as input");
-    }
-    else if (Serial2.available() > 10)
-    {
-      in = UART_B;
-      out = UART_A;
-      listening = false;
-      Serial.println("");
-      Serial.println("Using UART_B as input");
-    }
-    else
-    {
-      Serial.print(".");
-      delay(100);
-    }
-  }
+  // while (listening) // wait until previous module sends message to determine input and output pins
+  // {
+  //   if (Serial1.available() > 10)
+  //   {
+  //     in = UART_A;
+  //     out = UART_B;
+  //     listening = false;
+  //     Serial.println("");
+  //     Serial.println("Using UART_A as input");
+  //   }
+  //   else if (Serial2.available() > 10)
+  //   {
+  //     in = UART_B;
+  //     out = UART_A;
+  //     listening = false;
+  //     Serial.println("");
+  //     Serial.println("Using UART_B as input");
+  //   }
+  //   else
+  //   {
+  //     Serial.print(".");
+  //     delay(100);
+  //   }
+  // }
 
-  Serial1.end();
-  Serial2.end();
+  // Serial1.end();
+  // Serial2.end();
 
-  pinMode(in, INPUT);
-  pinMode(out, OUTPUT);
+  // pinMode(in, INPUT);
+  // pinMode(out, OUTPUT);
 
-  Serial1.setPins(in, out);
-  Serial1.setRxBufferSize(1024);
-  Serial1.begin(BAUDRATE);
-  Serial1.setRxFIFOFull(121u);
+  // Serial1.setPins(in, out);
+  // Serial1.setRxBufferSize(1024);
+  // Serial1.begin(BAUDRATE);
+  // Serial1.setRxFIFOFull(121u);
 
-  serialTransfer.begin(Serial1);
+  // serialTransfer.begin(Serial1);
 
-  // Send init message to next module downstream
-  uint16_t sendSize = 0;
-  sendSize = serialTransfer.txObj((uint8_t)200, sendSize);
-  sendSize = serialTransfer.txObj("Hello10Bytes", sendSize);
-  serialTransfer.sendData(sendSize);
-
-  // m1 = new ClockModule(0);
-  // m2 = new ClockModule(1);
-  // m3 = new ClockModule(2);
-  // m4 = new ClockModule(3);
+  // // Send init message to next module downstream
+  // uint16_t sendSize = 0;
+  // sendSize = serialTransfer.txObj((uint8_t)200, sendSize);
+  // sendSize = serialTransfer.txObj("Hello10Bytes", sendSize);
+  // serialTransfer.sendData(sendSize);
 
   modules[0] = new ClockModule(0);
   modules[1] = new ClockModule(1);
@@ -141,13 +136,19 @@ void setup()
   //     0); // Run on core 0
 
   // int step = 0;
-  // while (true) {
-  //   modules[0]->hourStepper->writeStep(step);
-  //   step = step + 1;
+  while (true) {
+    // step = step + 1;
+    
+    for (int i = 0; i < MICRO_STEPS_PER_REVOLUTION; i++) {
+      modules[0]->hourStepper->writeStep(i);
+      delayMicroseconds(10*1000000U / MICRO_STEPS_PER_REVOLUTION);
+    }
 
-  //   // delayMicroseconds(10000);
-  //   delayMicroseconds(8000 / MICROSTEPS);
-  // }
+    delay(1000);
+
+    // delayMicroseconds(10000);
+    // delayMicroseconds(8000 / MICROSTEPS);
+  }
 }
 
 bool firmwareUpdate = false;

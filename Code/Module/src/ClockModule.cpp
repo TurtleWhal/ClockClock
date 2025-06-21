@@ -23,6 +23,6 @@ ClockModule::ClockModule(int motor)
     // MotorControl_t minuteInit;
     // minuteInit.position = 315;
 
-    hourStepper->applyMotorControl(hourInit);
+    // hourStepper->applyMotorControl(hourInit);
     // minuteStepper->applyMotorControl(minuteInit);
 }
