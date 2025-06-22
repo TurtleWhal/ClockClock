@@ -10,14 +10,14 @@ const uint8_t pinMap[16] = {M1_A1, M1_A3, M1_B1, M1_B3,
                             M3_A1, M3_A3, M3_B1, M3_B3,
                             M4_A1, M4_A3, M4_B1, M4_B3};
 
-#define gpio_out_mask 0b1000 | (1 << M1_A1) | \
-                          (1 << M1_A3) |      \
-                          (1 << M1_B1) |      \
-                          (1 << M1_B3) |      \
-                          (1 << M2_A1) |      \
-                          (1 << M2_A3) |      \
-                          (1 << M2_B3) |      \
-                          (1 << M3_A1) |      \
+#define gpio_out_mask (1 << M1_A1) |     \
+                          (1 << M1_A3) | \
+                          (1 << M1_B1) | \
+                          (1 << M1_B3) | \
+                          (1 << M2_A1) | \
+                          (1 << M2_A3) | \
+                          (1 << M2_B3) | \
+                          (1 << M3_A1) | \
                           (1 << M3_A3)
 
 #define gpio_out1_mask (1 << (M2_B1 - 32)) |     \
@@ -44,10 +44,7 @@ void PWMTask(void *pvParameters)
         }
 
         if (loop == duties[0])
-        {
             REG_WRITE(GPIO_OUT_W1TC_REG, 1 << pinMap[0]);
-            REG_WRITE(GPIO_OUT_W1TC_REG, 1 << 3);
-        }
         if (loop == duties[1])
             REG_WRITE(GPIO_OUT_W1TC_REG, 1 << pinMap[1]);
         if (loop == duties[2])

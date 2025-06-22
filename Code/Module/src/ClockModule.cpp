@@ -10,11 +10,11 @@ ClockModule::ClockModule(int motor)
     hourStepper->setPosition(90);
     minuteStepper->setPosition(90);
 
-    // MotorControl_t hourInit;
-    // hourInit.position = 135;
-    // MotorControl_t minuteInit;
-    // minuteInit.position = 315;
+    MotorControl_t hourInit;
+    hourInit.position = 135;
+    MotorControl_t minuteInit;
+    minuteInit.position = 315;
 
-    // hourStepper->applyMotorControl(hourInit);
-    // minuteStepper->applyMotorControl(minuteInit);
+    hourStepper->applyMotorControl(hourInit);
+    minuteStepper->applyMotorControl(minuteInit);
 }

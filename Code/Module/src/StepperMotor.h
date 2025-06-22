@@ -59,8 +59,6 @@ private:
 
     void update(void *arg)
     {
-        esp_timer_start_once(timer, 500); // delay in microseconds
-
         unsigned long currentTime = micros();
         unsigned long elapsedTime = currentTime - lastUpdateTime;
         lastUpdateTime = currentTime;
@@ -140,6 +138,8 @@ private:
             writeStep(currentPosition);
             nextStepTime = currentTime + (1000000 / (currentSpeed * MICRO_STEPS_PER_DEGREE)); // Calculate next step time based on speed
         }
+
+        esp_timer_start_once(timer, 100); // delay in microseconds
 
         // esp_timer_start_once(timer, 500); // delay in microseconds
         // esp_timer_start_once(timer, (1000000 / (currentSpeed * MICRO_STEPS_PER_DEGREE))); // delay in microseconds
