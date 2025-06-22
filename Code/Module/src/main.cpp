@@ -7,6 +7,26 @@
 #include <rom/gpio.h>
 #include <soc/gpio_sig_map.h>
 #include "../../Master/src/motorcontrol.h"
+#include <soc/gpio_struct.h>
+
+#include "pwm.h"
+
+// #define HW_TIMER_INTERVAL_US 20L
+
+// volatile uint32_t startMicros = 0;
+
+// // Init ESP32 timer 1
+// ESP32Timer ITimer(1);
+
+// // Init ESP32_ISR_PWM
+// ESP32_PWM ISR_PWM;
+
+// bool IRAM_ATTR TimerHandler(void *timerNo)
+// {
+//   ISR_PWM.run();
+
+//   return true;
+// }
 
 #define BAUDRATE 2000000
 #define BUFFER_SIZE (1024 * 1024) // 1MB buffer for FW updates
@@ -20,27 +40,29 @@ uint8_t *largeBuffer; // For Firmware Updates, located in PSRAM
 
 ClockModule *modules[4];
 
-// Define the task function with the correct signature
-void MotorUpdateTask(void *pvParameters)
-{
-  while (true)
-  {
-    for (int i = 0; i < 4; i++)
-    {
-      // modules[i]->minuteStepper->update();
-      // modules[i]->hourStepper->update();
-    }
-    
-    vTaskDelay(1 / portTICK_PERIOD_MS); // Delay to prevent task starvation
-  }
-}
-
 SerialTransfer serialTransfer;
 
 int in = 0, out = 0;
 
 void setup()
 {
+  // esp_pm_config_t cfg = {
+  //     .max_freq_mhz = 240,        // Set maximum CPU frequency to 240 MHz
+  //     .min_freq_mhz = 240,        // Set minimum CPU frequency to 80 MHz
+  //     .light_sleep_enable = false // Enable light sleep
+  // };
+
+  // esp_err_t ret = esp_pm_configure(&cfg);
+  // if (ret != ESP_OK)
+  // {
+  //   // Handle error
+  //   Serial.println("Failed to configure power management");
+  // }
+
+  // esp_pm_lock_acquire(ESP_PM_CPU_FREQ_MAX);
+
+  setCpuFrequencyMhz(240); // Set CPU frequency to 240 MHz
+
   // Serial
   Serial.begin(1000000);
   Serial.print("Helooo. I am a Module. I am V");
@@ -49,6 +71,8 @@ void setup()
   Serial.print(VERSION_DATE);
   Serial.print(" at ");
   Serial.println(VERSION_TIME);
+
+  pinMode(3, OUTPUT);
 
   // log_d("Total heap: %d", ESP.getHeapSize());
   // log_d("Free heap: %d", ESP.getFreeHeap());
@@ -121,27 +145,43 @@ void setup()
   // sendSize = serialTransfer.txObj("Hello10Bytes", sendSize);
   // serialTransfer.sendData(sendSize);
 
+  // // Interval in microsecs
+  // if (ITimer.attachInterruptInterval(HW_TIMER_INTERVAL_US, TimerHandler))
+  // {
+  //   startMicros = micros();
+  //   Serial.print(F("Starting ITimer OK, micros() = "));
+  //   Serial.println(startMicros);
+  // }
+  // else
+  //   Serial.println(F("Can't set ITimer. Select another freq. or timer"));
+
+  initPWM();
+
   modules[0] = new ClockModule(0);
   modules[1] = new ClockModule(1);
   modules[2] = new ClockModule(2);
   modules[3] = new ClockModule(3);
 
-  // xTaskCreatePinnedToCore(
-  //     MotorUpdateTask,
-  //     "MotorUpdate",
-  //     4096,
-  //     NULL,
-  //     1,
-  //     NULL,
-  //     0); // Run on core 0
-
   // int step = 0;
-  while (true) {
+  while (true)
+  {
     // step = step + 1;
-    
-    for (int i = 0; i < MICRO_STEPS_PER_REVOLUTION; i++) {
+
+    for (int i = 0; i <= MICRO_STEPS_PER_REVOLUTION; i++)
+    {
       modules[0]->hourStepper->writeStep(i);
-      delayMicroseconds(10*1000000U / MICRO_STEPS_PER_REVOLUTION);
+      modules[0]->minuteStepper->writeStep(i);
+      // delayMicroseconds(500000U / MICRO_STEPS_PER_REVOLUTION);
+      modules[1]->hourStepper->writeStep(i);
+      modules[1]->minuteStepper->writeStep(i);
+      // delayMicroseconds(500000U / MICRO_STEPS_PER_REVOLUTION);
+      modules[2]->hourStepper->writeStep(i);
+      modules[2]->minuteStepper->writeStep(i);
+      // delayMicroseconds(500000U / MICRO_STEPS_PER_REVOLUTION);
+      modules[3]->hourStepper->writeStep(i);
+      modules[3]->minuteStepper->writeStep(i);
+      // delayMicroseconds(500000U / MICRO_STEPS_PER_REVOLUTION);
+      delayMicroseconds(4 * 1000000U / MICRO_STEPS_PER_REVOLUTION);
     }
 
     delay(1000);

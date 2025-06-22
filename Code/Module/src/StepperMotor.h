@@ -1,11 +1,13 @@
 #include "Arduino.h"
+#include "pwm.h"
 #include "../../Master/src/motorcontrol.h"
 
-#define MICROSTEPS 20
+#define MICROSTEPS 32
 #define STEPS_PER_REVOLUTION 720                                       // Logical steps (user-facing)
 #define MICRO_STEPS_PER_REVOLUTION (STEPS_PER_REVOLUTION * MICROSTEPS) // Physical microsteps
 #define MICRO_STEPS_PER_DEGREE (MICRO_STEPS_PER_REVOLUTION / 360)      // Physical microsteps
 #define STEP_AMPLITUDE 1.0f
+#define PWM_FREQ 40000
 
 class StepperMotor
 {
@@ -31,17 +33,29 @@ private:
 
     bool clockwise = true;
 
-    uint8_t sinTable[MICROSTEPS * 4];
-    // uint8_t cosTable[MICROSTEPS * 4];
+    uint16_t sinTable[MICROSTEPS * 4];
 
     void generateMicrostepTable()
     {
+        if (log)
+            Serial.print("Sine table: {");
+
         for (uint8_t i = 0; i < MICROSTEPS * 4; i++)
         {
             float rad = ((i % (MICROSTEPS * 4)) * (PI * 2)) / (MICROSTEPS * 4.0f);
+            sinTable[i] = sinf(rad) * UINT16_MAX * STEP_AMPLITUDE; // will have the right behaviour when sin is negative when it wraps around
+            
+            if (log)
+            {
+                Serial.print(sinTable[i]);
 
-            sinTable[i] = sinf(rad) * 255 * STEP_AMPLITUDE; // will have the right behaviour when sin is negative when it wraps around
+                if (i < MICROSTEPS * 4 - 1)
+                    Serial.print(", ");
+            }
         }
+
+        if (log)
+            Serial.println("}");
     }
 
     void update(void *arg)
@@ -156,8 +170,11 @@ public:
         pinMode(pin2A, OUTPUT);
         pinMode(pin2B, OUTPUT);
 
-        analogWriteFrequency(pin1A, 10000); // 20kHz
-        analogWriteFrequency(pin2A, 10000); // 20kHz
+        // analogWriteFrequency(pin1A, PWM_FREQ);
+        // analogWriteFrequency(pin2A, PWM_FREQ);
+
+        // ledcAttach(pin1A, PWM_FREQ, 8);
+        // ledcAttach(pin2A, PWM_FREQ, 8);
 
         // Set initial position
         writeStep(currentPosition);
@@ -170,12 +187,20 @@ public:
         uint8_t step = (microStep) % (MICROSTEPS * 4);
         uint8_t step90 = (step + MICROSTEPS) % (MICROSTEPS * 4); // 90 degrees offset
 
-        analogWrite(pin1A, sinTable[step]);
+        // analogWrite(pin1A, sinTable[step]);
+        // ledcWrite(pin1A, sinTable[step]);
+        // ISR_PWM.setPWM(pin1A, PWM_FREQ, sinTable[step]);
+        setPWMDuty(pin1A, sinTable[step]);
         digitalWrite(pin1B, step <= (MICROSTEPS * 2) ? LOW : HIGH);
-        
-        analogWrite(pin2A, sinTable[step90]);
+
+        // analogWrite(pin2A, sinTable[step90]);
+        // ledcWrite(pin2A, sinTable[step90]);
+        // ISR_PWM.setPWM(pin2A, PWM_FREQ, sinTable[step90]);
+        setPWMDuty(pin2A, sinTable[step90]);
         digitalWrite(pin2B, step90 <= (MICROSTEPS * 2) ? LOW : HIGH);
 
+        // Serial.printf(">s:%d\n", sinTable[step]);
+        // Serial.printf(">r:%d\n", step <= (MICROSTEPS * 2) ? 0 : 255);
 
         // float i = ((microStep % (MICROSTEPS * 4)) * (PI * 2)) / (MICROSTEPS * 4.0f);
 
