@@ -7,7 +7,6 @@
 #define MICRO_STEPS_PER_REVOLUTION (STEPS_PER_REVOLUTION * MICROSTEPS) // Physical microsteps
 #define MICRO_STEPS_PER_DEGREE (MICRO_STEPS_PER_REVOLUTION / 360)      // Physical microsteps
 #define STEP_AMPLITUDE 1.0f
-#define PWM_FREQ 40000
 
 class StepperMotor
 {
@@ -170,12 +169,6 @@ public:
         pinMode(pin2A, OUTPUT);
         pinMode(pin2B, OUTPUT);
 
-        // analogWriteFrequency(pin1A, PWM_FREQ);
-        // analogWriteFrequency(pin2A, PWM_FREQ);
-
-        // ledcAttach(pin1A, PWM_FREQ, 8);
-        // ledcAttach(pin2A, PWM_FREQ, 8);
-
         // Set initial position
         writeStep(currentPosition);
 
@@ -187,32 +180,14 @@ public:
         uint8_t step = (microStep) % (MICROSTEPS * 4);
         uint8_t step90 = (step + MICROSTEPS) % (MICROSTEPS * 4); // 90 degrees offset
 
-        // analogWrite(pin1A, sinTable[step]);
-        // ledcWrite(pin1A, sinTable[step]);
-        // ISR_PWM.setPWM(pin1A, PWM_FREQ, sinTable[step]);
         setPWMDuty(pin1A, sinTable[step]);
         digitalWrite(pin1B, step <= (MICROSTEPS * 2) ? LOW : HIGH);
 
-        // analogWrite(pin2A, sinTable[step90]);
-        // ledcWrite(pin2A, sinTable[step90]);
-        // ISR_PWM.setPWM(pin2A, PWM_FREQ, sinTable[step90]);
         setPWMDuty(pin2A, sinTable[step90]);
         digitalWrite(pin2B, step90 <= (MICROSTEPS * 2) ? LOW : HIGH);
 
         // Serial.printf(">s:%d\n", sinTable[step]);
         // Serial.printf(">r:%d\n", step <= (MICROSTEPS * 2) ? 0 : 255);
-
-        // float i = ((microStep % (MICROSTEPS * 4)) * (PI * 2)) / (MICROSTEPS * 4.0f);
-
-        // float sineA = sinf(i);
-        // uint8_t raiseA = sineA <= 0 ? 1 : 0;
-        // analogWrite(pin1A, (sineA + raiseA) * 255 * STEP_AMPLITUDE);
-        // digitalWrite(pin1B, raiseA);
-
-        // float sineB = cosf(i);
-        // uint8_t raiseB = sineB <= 0 ? 1 : 0;
-        // analogWrite(pin2A, (sineB + raiseB) * 255 * STEP_AMPLITUDE);
-        // digitalWrite(pin2B, raiseB);
     }
 
     void applyMotorControl(const MotorControl_t &control)

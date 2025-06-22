@@ -5,38 +5,15 @@
 #include "version.h"
 
 #include <rom/gpio.h>
-#include <soc/gpio_sig_map.h>
 #include "../../Master/src/motorcontrol.h"
-#include <soc/gpio_struct.h>
 
 #include "pwm.h"
-
-// #define HW_TIMER_INTERVAL_US 20L
-
-// volatile uint32_t startMicros = 0;
-
-// // Init ESP32 timer 1
-// ESP32Timer ITimer(1);
-
-// // Init ESP32_ISR_PWM
-// ESP32_PWM ISR_PWM;
-
-// bool IRAM_ATTR TimerHandler(void *timerNo)
-// {
-//   ISR_PWM.run();
-
-//   return true;
-// }
 
 #define BAUDRATE 2000000
 #define BUFFER_SIZE (1024 * 1024) // 1MB buffer for FW updates
 
 uint8_t *largeBuffer; // For Firmware Updates, located in PSRAM
 
-// ClockModule *m1;
-// ClockModule *m2;
-// ClockModule *m3;
-// ClockModule *m4;
 
 ClockModule *modules[4];
 
@@ -46,21 +23,6 @@ int in = 0, out = 0;
 
 void setup()
 {
-  // esp_pm_config_t cfg = {
-  //     .max_freq_mhz = 240,        // Set maximum CPU frequency to 240 MHz
-  //     .min_freq_mhz = 240,        // Set minimum CPU frequency to 80 MHz
-  //     .light_sleep_enable = false // Enable light sleep
-  // };
-
-  // esp_err_t ret = esp_pm_configure(&cfg);
-  // if (ret != ESP_OK)
-  // {
-  //   // Handle error
-  //   Serial.println("Failed to configure power management");
-  // }
-
-  // esp_pm_lock_acquire(ESP_PM_CPU_FREQ_MAX);
-
   setCpuFrequencyMhz(240); // Set CPU frequency to 240 MHz
 
   // Serial
@@ -145,16 +107,6 @@ void setup()
   // sendSize = serialTransfer.txObj("Hello10Bytes", sendSize);
   // serialTransfer.sendData(sendSize);
 
-  // // Interval in microsecs
-  // if (ITimer.attachInterruptInterval(HW_TIMER_INTERVAL_US, TimerHandler))
-  // {
-  //   startMicros = micros();
-  //   Serial.print(F("Starting ITimer OK, micros() = "));
-  //   Serial.println(startMicros);
-  // }
-  // else
-  //   Serial.println(F("Can't set ITimer. Select another freq. or timer"));
-
   initPWM();
 
   modules[0] = new ClockModule(0);
@@ -162,32 +114,28 @@ void setup()
   modules[2] = new ClockModule(2);
   modules[3] = new ClockModule(3);
 
-  // int step = 0;
+  // spin forever to test motors
   while (true)
   {
-    // step = step + 1;
 
     for (int i = 0; i <= MICRO_STEPS_PER_REVOLUTION; i++)
     {
       modules[0]->hourStepper->writeStep(i);
       modules[0]->minuteStepper->writeStep(i);
-      // delayMicroseconds(500000U / MICRO_STEPS_PER_REVOLUTION);
+   
       modules[1]->hourStepper->writeStep(i);
       modules[1]->minuteStepper->writeStep(i);
-      // delayMicroseconds(500000U / MICRO_STEPS_PER_REVOLUTION);
+      
       modules[2]->hourStepper->writeStep(i);
       modules[2]->minuteStepper->writeStep(i);
-      // delayMicroseconds(500000U / MICRO_STEPS_PER_REVOLUTION);
+      
       modules[3]->hourStepper->writeStep(i);
       modules[3]->minuteStepper->writeStep(i);
-      // delayMicroseconds(500000U / MICRO_STEPS_PER_REVOLUTION);
+      
       delayMicroseconds(4 * 1000000U / MICRO_STEPS_PER_REVOLUTION);
     }
 
     delay(1000);
-
-    // delayMicroseconds(10000);
-    // delayMicroseconds(8000 / MICROSTEPS);
   }
 }
 
