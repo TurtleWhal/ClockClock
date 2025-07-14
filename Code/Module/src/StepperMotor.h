@@ -2,7 +2,7 @@
 #include "pwm.h"
 #include "../../Master/src/motorcontrol.h"
 
-#define MICROSTEPS 32
+#define MICROSTEPS 8
 #define STEPS_PER_REVOLUTION 720                                       // Logical steps (user-facing)
 #define MICRO_STEPS_PER_REVOLUTION (STEPS_PER_REVOLUTION * MICROSTEPS) // Physical microsteps
 #define MICRO_STEPS_PER_DEGREE (MICRO_STEPS_PER_REVOLUTION / 360)      // Physical microsteps
@@ -43,7 +43,7 @@ private:
         {
             float rad = ((i % (MICROSTEPS * 4)) * (PI * 2)) / (MICROSTEPS * 4.0f);
             sinTable[i] = sinf(rad) * UINT16_MAX * STEP_AMPLITUDE; // will have the right behaviour when sin is negative when it wraps around
-            
+
             if (log)
             {
                 Serial.print(sinTable[i]);
@@ -126,16 +126,19 @@ private:
 
         if (currentTime >= nextStepTime)
         {
-            if (clockwise)
-            {
-                currentPosition = (currentPosition + 1) % MICRO_STEPS_PER_REVOLUTION;
-            }
-            else
-            {
-                currentPosition = (currentPosition == 0) ? (MICRO_STEPS_PER_REVOLUTION - 1) : (currentPosition - 1);
-            }
+            // if (clockwise)
+            // {
+            //     currentPosition = (currentPosition + 1) % MICRO_STEPS_PER_REVOLUTION;
+            // }
+            // else
+            // {
+            //     currentPosition = (currentPosition == 0) ? (MICRO_STEPS_PER_REVOLUTION - 1) : (currentPosition - 1);
+            // }
 
-            writeStep(currentPosition);
+            // writeStep(currentPosition);
+
+            writeStep(clockwise ? 1 : -1);
+
             nextStepTime = currentTime + (1000000 / (currentSpeed * MICRO_STEPS_PER_DEGREE)); // Calculate next step time based on speed
         }
 
@@ -145,14 +148,25 @@ private:
         // esp_timer_start_once(timer, (1000000 / (currentSpeed * MICRO_STEPS_PER_DEGREE))); // delay in microseconds
     }
 
+    // void stepTask(void *arg)
+    // {
+    //     esp_timer_start_once(timer, (1000000 / (targetSpeed * MICRO_STEPS_PER_DEGREE)));
+    //     // esp_timer_start_once(timer, 1000);
+
+    //     writeStep(clockwise ? 1 : -1);
+    // }
+
     const esp_timer_create_args_t timer_args = {
         .callback = [](void *arg)
         {
             StepperMotor *motor = static_cast<StepperMotor *>(arg);
             motor->update(arg);
+            // motor->stepTask(arg);
         },
         .arg = (void *)this, // arbitrary argument to pass to callback
-        .name = "StepperTimer"};
+        // .dispatch_method = ESP_TIMER_ISR,
+        .name = "StepperTimer",
+    };
 
     esp_timer_handle_t timer;
 
@@ -175,19 +189,21 @@ public:
         esp_timer_create(&timer_args, &timer);
     }
 
-    void writeStep(uint16_t microStep)
+    void writeStep(int8_t microSteps)
     {
-        uint8_t step = (microStep) % (MICROSTEPS * 4);
-        uint8_t step90 = (step + MICROSTEPS) % (MICROSTEPS * 4); // 90 degrees offset
+        if (currentPosition < -microSteps)
+            currentPosition += MICRO_STEPS_PER_REVOLUTION;
+
+        currentPosition += microSteps;
+
+        uint8_t step = (currentPosition) % (MICROSTEPS * 4);     // Microsteps * 4 because 4 steps is one revolution of the stator
+        uint8_t step90 = (step + MICROSTEPS) % (MICROSTEPS * 4); // 90 degrees offset for second coil
 
         setPWMDuty(pin1A, sinTable[step]);
         digitalWrite(pin1B, step <= (MICROSTEPS * 2) ? LOW : HIGH);
 
         setPWMDuty(pin2A, sinTable[step90]);
         digitalWrite(pin2B, step90 <= (MICROSTEPS * 2) ? LOW : HIGH);
-
-        // Serial.printf(">s:%d\n", sinTable[step]);
-        // Serial.printf(">r:%d\n", step <= (MICROSTEPS * 2) ? 0 : 255);
     }
 
     void applyMotorControl(const MotorControl_t &control)

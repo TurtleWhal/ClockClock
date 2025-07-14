@@ -2,5 +2,6 @@
     "files.associations": {
         "*.embeddedhtml": "html",
         "cmath": "cpp"
-    }
+    },
+    "idf.pythonInstallPath": "/usr/local/bin/python3"
 }

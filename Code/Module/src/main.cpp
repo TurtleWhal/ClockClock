@@ -14,7 +14,6 @@
 
 uint8_t *largeBuffer; // For Firmware Updates, located in PSRAM
 
-
 ClockModule *modules[4];
 
 SerialTransfer serialTransfer;
@@ -120,20 +119,35 @@ void setup()
   //   {
   //     modules[0]->hourStepper->writeStep(i);
   //     modules[0]->minuteStepper->writeStep(i);
-   
+
   //     modules[1]->hourStepper->writeStep(i);
   //     modules[1]->minuteStepper->writeStep(i);
-      
+
   //     modules[2]->hourStepper->writeStep(i);
   //     modules[2]->minuteStepper->writeStep(i);
-      
+
   //     modules[3]->hourStepper->writeStep(i);
   //     modules[3]->minuteStepper->writeStep(i);
-      
+
   //     delayMicroseconds(4 * 1000000U / MICRO_STEPS_PER_REVOLUTION);
   //   }
 
   //   delay(1000);
+  // }
+
+  // MotorControl_t control = {
+  //     .speed = 20,
+  //     .direction = MOTOR_CW};
+
+  // for (uint8_t i = 0; i < 4; i++)
+  // {
+  //   modules[i]->hourStepper->applyMotorControl(control);
+  //   modules[i]->minuteStepper->applyMotorControl(control);
+  // }
+
+  // while (true)
+  // {
+  //   vTaskDelay(1000);
   // }
 }
 
