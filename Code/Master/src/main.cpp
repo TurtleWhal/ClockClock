@@ -31,7 +31,7 @@ void sendStatus();
 
 #define WIDTH 8
 #define HEIGHT 3
-#define CLOCKS WIDTH *HEIGHT
+#define CLOCKS (WIDTH * HEIGHT)
 #define MODULES CLOCKS / 4
 
 #define CLEAR_DELAY 5000
@@ -52,7 +52,8 @@ void clearBuffer(MotorControl_t fill = MotorControl_t())
   }
 }
 
-enum {
+enum
+{
   MODE_TIME,
   MODE_CLEAR,
   MODE_DIAGONAL,
@@ -273,14 +274,14 @@ void loop()
         {
           buffer[i][j][0].position = 135;
           buffer[i][j][1].position = 315;
-          buffer[i][j][0].direction = MOTOR_CW;
-          buffer[i][j][1].direction = MOTOR_CW;
+          buffer[i][j][0].direction = MotorDirection_t::MOTOR_CW;
+          buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
         }
       }
-      
+
       writeBuffer();
       delay(CLEAR_DELAY);
-      
+
       for (int i = 0; i < WIDTH; i++)
       {
         for (int j = 0; j < HEIGHT; j++)
@@ -291,36 +292,36 @@ void loop()
           buffer[i][j][1].speed = 100;
           buffer[i][j][0].keepRunning = true;
           buffer[i][j][1].keepRunning = true;
-          buffer[i][j][0].direction = MOTOR_CW;
-          buffer[i][j][1].direction = MOTOR_CW;
+          buffer[i][j][0].direction = MotorDirection_t::MOTOR_CW;
+          buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
         }
-        
+
         writeBuffer();
         delay(600);
       }
       writeBuffer();
     }
     break;
-    
-    case MODE_ALT_WAVE:
+
+  case MODE_ALT_WAVE:
     if (modeChanged)
     {
       clearBuffer();
-      
+
       for (int i = 0; i < WIDTH; i++)
       {
         for (int j = 0; j < HEIGHT; j++)
         {
           buffer[i][j][0].position = 90;
           buffer[i][j][1].position = 270;
-          buffer[i][j][0].direction = MOTOR_CCW;
-          buffer[i][j][1].direction = MOTOR_CW;
+          buffer[i][j][0].direction = MotorDirection_t::MOTOR_CCW;
+          buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
         }
       }
-      
+
       // writeBuffer();
       // delay(CLEAR_DELAY);
-      
+
       for (int i = 0; i < WIDTH; i++)
       {
         for (int j = 0; j < HEIGHT; j++)
@@ -331,8 +332,8 @@ void loop()
           buffer[i][j][1].speed = 100;
           buffer[i][j][0].keepRunning = true;
           buffer[i][j][1].keepRunning = true;
-          buffer[i][j][0].direction = MOTOR_CCW;
-          buffer[i][j][1].direction = MOTOR_CW;
+          buffer[i][j][0].direction = MotorDirection_t::MOTOR_CCW;
+          buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
         }
 
         writeBuffer();
@@ -354,13 +355,14 @@ void loop()
   // vTaskDelay(1000 / portTICK_PERIOD_MS);
 
   ArduinoOTA.handle();
+  events(); // ezTime event handler to keep time updated
 
   delay(100);
 }
 
 void writeBuffer()
 {
-  Serial.println("Sending Buffer");
+  // Serial.println("Sending Buffer");
 
   // if (!uploadingFirmware)
   MotorControl_t sendBuffer[CLOCKS][2];
@@ -378,11 +380,35 @@ void writeBuffer()
     }
   }
 
-  uint16_t sendSize = 0;
-  uint8_t address = 0;
-  sendSize = serialTransfer.txObj(address, sendSize);
-  sendSize = serialTransfer.txObj(sendBuffer, sendSize);
-  serialTransfer.sendData(sendSize);
+  Serial.print("Sending Buffer: [");
+  for (int i = 0; i < 24; i++)
+  {
+    Serial.print("[" + String(sendBuffer[i][0].position) + ", " + String(sendBuffer[i][1].position) + "], ");
+  }
+  Serial.println("]");
+
+  // uint16_t sendSize = 0;
+  // uint8_t address = 0;
+  // sendSize = serialTransfer.txObj(address, sendSize);
+  // sendSize = serialTransfer.txObj(sendBuffer, sendSize);
+  // serialTransfer.sendData(sendSize);
+
+  for (int module = MODULES - 1; module >= 0; --module)
+  {
+    uint16_t sendSize = 0;
+    uint8_t address = module;
+
+    MotorControl_t moduleBuffer[4][2];
+    for (int k = 0; k < 4; k++)
+    {
+      moduleBuffer[k][0] = sendBuffer[module * 4 + k][0];
+      moduleBuffer[k][1] = sendBuffer[module * 4 + k][1];
+    }
+
+    sendSize = serialTransfer.txObj(address, sendSize);
+    sendSize = serialTransfer.txObj(moduleBuffer, sendSize);
+    serialTransfer.sendData(sendSize);
+  }
 
   sendStatus();
 }
@@ -609,7 +635,9 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
     logmessage = "Upload Start: " + String(filename);
     // open the file on first call and store the file handle in the request object
     request->_tempFile = SPIFFS.open("/" + filename, "w");
-    request->getHeader("install")->toString().equals("true") ? installFirmware = true : installFirmware = false;
+    // Safely read the install header (check for null) and use value() instead of toString()
+    const AsyncWebHeader *h = request->getHeader("install");
+    installFirmware = (h && h->value() == "true");
     Serial.println(logmessage + ", Install: " + installFirmware);
   }
 

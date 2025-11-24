@@ -111,8 +111,8 @@
     }
 
     function initWebSocket() {
-      // var gateway = `ws://${window.location.hostname || 'clockclock'}/ws`;
-      var gateway = `ws://192.168.10.111/ws`;
+      var gateway = `ws://${window.location.hostname || 'clockclock'}/ws`;
+      // var gateway = `ws://192.168.10.111/ws`;
       websocket = new WebSocket(gateway);
       websocket.onopen = onOpen;
       websocket.onclose = onClose;
@@ -259,27 +259,27 @@
       // Always track mouse movement, not just when dragging
       var currentMouseX = e.offsetX || e.touches[0].clientX - canvas.getBoundingClientRect().left;
       var currentMouseY = e.offsetY || e.touches[0].clientY - canvas.getBoundingClientRect().top;
-      
+
       // Calculate mouse speed
       var deltaX = currentMouseX - lastMouseX;
       var deltaY = currentMouseY - lastMouseY;
       mouseSpeed = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-      
+
       // Update mouse position
       mouseX = currentMouseX;
       mouseY = currentMouseY;
       lastMouseX = currentMouseX;
       lastMouseY = currentMouseY;
-      
+
       // Update last move time
       lastMouseMoveTime = Date.now();
-      
+
       // Update mouse targets
       updateMouseTargets();
-      
+
       // Set mouse as active when there's any movement
       mouseActive = mouseSpeed > 0.01; // Much lower threshold
-      
+
       if (dragging) {
         dist = Math.sqrt(Math.pow(mouseX - lastx, 2) + Math.pow(mouseY - lasty, 2));
 
@@ -300,13 +300,13 @@
       var space = 110;
       var halfspace = space / 2;
       var repulsionRadius = 150; // Large radius for wide effect
-      
+
       for (let y = 0; y < 3; y++) {
         for (let x = 0; x < 8; x++) {
           // Calculate clock center position
           var clockX = halfspace + x * space;
           var clockY = halfspace + y * space;
-          
+
           // Calculate distance from mouse to clock center
           var distance = Math.sqrt(Math.pow(mouseX - clockX, 2) + Math.pow(mouseY - clockY, 2));
 
@@ -326,7 +326,7 @@
     function updateMouseSpeed() {
       var currentTime = Date.now();
       var timeSinceLastMove = currentTime - lastMouseMoveTime;
-      
+
       // Decay mouse speed over time when mouse isn't moving
       if (timeSinceLastMove > 16) { // After one frame (60fps = ~16ms)
         mouseSpeed *= 0.8; // Decay by 20% each frame
@@ -339,13 +339,13 @@
     function updateHandsPhysics() {
       // Update mouse speed decay
       updateMouseSpeed();
-      
+
       var spinStrength = 0.2; // How fast hands spin when mouse is over them
       var returnStrength = 0.0004; // Much much much slower return to original positions
       var damping = 0.95; // Velocity damping factor
       var maxVelocity = 3; // Maximum angular velocity
       var stopThreshold = 0.1; // Threshold to stop motion when near original position
-      
+
       for (let y = 0; y < 3; y++) {
         for (let x = 0; x < 8; x++) {
           for (let hand = 0; hand < 2; hand++) {
@@ -353,31 +353,31 @@
             var currentVelocity = handVelocities[x][y][hand];
             var isAffected = mouseTargets[x][y][hand];
             var originalAngle = originalHands[x][y][hand];
-            
+
             if (isAffected && mouseActive && mouseSpeed > 0.01) {
               // Calculate angle away from mouse
               var space = 110;
               var halfspace = space / 2;
               var clockX = halfspace + x * space;
               var clockY = halfspace + y * space;
-              
+
               // Calculate distance from mouse to clock center
               var distance = Math.sqrt(Math.pow(mouseX - clockX, 2) + Math.pow(mouseY - clockY, 2));
               var repulsionRadius = 150;
-              
+
               // Calculate distance-based scaling (stronger when closer)
               var distanceScale = 1 - (distance / repulsionRadius);
               distanceScale = Math.pow(distanceScale, 1.5); // Apply curve for smoother falloff
-              
+
               // Calculate angle pointing away from mouse
               var awayAngle = Math.atan2(clockY - mouseY, clockX - mouseX) * 180 / Math.PI;
               if (awayAngle < 0) awayAngle += 360;
-              
+
               // Calculate shortest angular distance to away angle
               var angleDiff = awayAngle - currentAngle;
               if (angleDiff > 180) angleDiff -= 360;
               if (angleDiff < -180) angleDiff += 360;
-              
+
               // Apply force toward away angle, scaled by mouse speed AND distance
               var speedScale = Math.min(mouseSpeed * 0.1, 1.0); // Scale by mouse speed
               var totalScale = speedScale * distanceScale; // Combine speed and distance scaling
@@ -388,7 +388,7 @@
               var angleDiff = originalAngle - currentAngle;
               if (angleDiff > 180) angleDiff -= 360;
               if (angleDiff < -180) angleDiff += 360;
-              
+
               if (Math.abs(angleDiff) < stopThreshold) {
                 // Close enough to original position - snap to it and stop
                 hands[x][y][hand] = originalAngle;
@@ -399,20 +399,20 @@
                 handVelocities[x][y][hand] += returnForce;
               }
             }
-            
+
             // Apply damping to all hands
             handVelocities[x][y][hand] *= damping;
-            
+
             // Clamp velocity
             if (handVelocities[x][y][hand] > maxVelocity) {
               handVelocities[x][y][hand] = maxVelocity;
             } else if (handVelocities[x][y][hand] < -maxVelocity) {
               handVelocities[x][y][hand] = -maxVelocity;
             }
-            
+
             // Update position
             hands[x][y][hand] += handVelocities[x][y][hand];
-            
+
             // Normalize angle to 0-360
             hands[x][y][hand] = hands[x][y][hand] % 360;
             if (hands[x][y][hand] < 0) hands[x][y][hand] += 360;

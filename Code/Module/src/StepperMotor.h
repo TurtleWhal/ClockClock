@@ -43,7 +43,7 @@ private:
         {
             float rad = ((i % (MICROSTEPS * 4)) * (PI * 2)) / (MICROSTEPS * 4.0f);
             sinTable[i] = sinf(rad) * UINT16_MAX * STEP_AMPLITUDE; // will have the right behaviour when sin is negative when it wraps around
-            
+
             if (log)
             {
                 Serial.print(sinTable[i]);
@@ -201,7 +201,7 @@ public:
 
             if (!isRunning) // preserve direction if already running
             {
-                if (control.direction == MOTOR_SHORTEST)
+                if (control.direction == MotorDirection_t::MOTOR_SHORTEST)
                 {
                     int16_t diff = targetPosition - currentPosition;
                     if (diff != 0)
@@ -212,7 +212,7 @@ public:
                 }
                 else
                 {
-                    clockwise = control.direction != MOTOR_CCW;
+                    clockwise = control.direction != MotorDirection_t::MOTOR_CCW;
                 }
             }
 
@@ -240,7 +240,7 @@ public:
             acceleration = control.acceleration;
             currentSpeed = fmax(currentSpeed, 1);
             nextStepTime = micros();
-            clockwise = control.direction != MOTOR_CCW;
+            clockwise = control.direction != MotorDirection_t::MOTOR_CCW;
             isRunning = true;
             continuous = true;
         }

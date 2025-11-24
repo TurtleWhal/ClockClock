@@ -1,6 +1,8 @@
 {
     "files.associations": {
         "*.embeddedhtml": "html",
-        "cmath": "cpp"
-    }
+        "cmath": "cpp",
+        "regex": "cpp"
+    },
+    "idf.pythonInstallPath": "/usr/local/bin/python"
 }

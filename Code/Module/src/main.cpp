@@ -14,7 +14,6 @@
 
 uint8_t *largeBuffer; // For Firmware Updates, located in PSRAM
 
-
 ClockModule *modules[4];
 
 SerialTransfer serialTransfer;
@@ -120,16 +119,16 @@ void setup()
   //   {
   //     modules[0]->hourStepper->writeStep(i);
   //     modules[0]->minuteStepper->writeStep(i);
-   
+
   //     modules[1]->hourStepper->writeStep(i);
   //     modules[1]->minuteStepper->writeStep(i);
-      
+
   //     modules[2]->hourStepper->writeStep(i);
   //     modules[2]->minuteStepper->writeStep(i);
-      
+
   //     modules[3]->hourStepper->writeStep(i);
   //     modules[3]->minuteStepper->writeStep(i);
-      
+
   //     delayMicroseconds(4 * 1000000U / MICRO_STEPS_PER_REVOLUTION);
   //   }
 
@@ -195,45 +194,43 @@ void loop()
 
   if (serialTransfer.available())
   {
-    MotorControl_t buffer[24][2];
     uint16_t recSize = 0;
     uint8_t address;
     recSize = serialTransfer.rxObj(address, recSize);
 
     if (address < 200)
     {
-      // bool speed;
-      // recSize = serialTransfer.rxObj(speed, recSize);
-
-      // bool optimize;
-      // recSize = serialTransfer.rxObj(optimize, recSize);
-
+      MotorControl_t buffer[4][2];
       recSize = serialTransfer.rxObj(buffer, recSize);
 
-      uint16_t sendSize = 0;
-      uint8_t sendAddress = address + 1;
-      sendSize = serialTransfer.txObj(sendAddress, sendSize);
-      // sendSize = serialTransfer.txObj(speed, sendSize);
-      // sendSize = serialTransfer.txObj(optimize, sendSize);
-      sendSize = serialTransfer.txObj(buffer, sendSize);
-
-      serialTransfer.sendData(sendSize);
-
-      Serial.println("Address: " + String(address));
-
-      Serial.print("Buffer: [");
-      for (int i = 0; i < 24; i++)
+      if (address > 0)
       {
-        Serial.print("[" + String(buffer[i][0].position / 2) + ", " + String(buffer[i][1].position / 2) + "], ");
+        // forward packets to next module
+
+        uint16_t sendSize = 0;
+        uint8_t sendAddress = address - 1;
+        sendSize = serialTransfer.txObj(sendAddress, sendSize);
+        sendSize = serialTransfer.txObj(buffer, sendSize);
+
+        Serial.printf("Recieved for %d, forwarding to %d\n", address, sendAddress);
+
+        serialTransfer.sendData(sendSize);
       }
-      Serial.println("]");
-
-      uint8_t ofs = address * 4;
-
-      for (int i = 0; i < 4; i++)
+      else
       {
-        modules[i]->hourStepper->applyMotorControl(buffer[ofs + i][0]);
-        modules[i]->minuteStepper->applyMotorControl(buffer[ofs + i][1]);
+        // address 0 mean it is for me
+        Serial.print("Buffer: [");
+        for (int i = 0; i < 4; i++)
+        {
+          Serial.print("[" + String(buffer[i][0].position) + ", " + String(buffer[i][1].position) + "]" + (i < 3 ? ", " : ""));
+        }
+        Serial.println("]");
+
+        for (int i = 0; i < 4; i++)
+        {
+          modules[i]->hourStepper->applyMotorControl(buffer[i][0]);
+          modules[i]->minuteStepper->applyMotorControl(buffer[i][1]);
+        }
       }
     }
     else
