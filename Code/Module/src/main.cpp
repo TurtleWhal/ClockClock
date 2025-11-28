@@ -228,6 +228,20 @@ void loop()
 
         for (int i = 0; i < 4; i++)
         {
+          if (!buffer[i][0].keepRunning && !buffer[i][1].keepRunning && buffer[i][0].optimize && buffer[i][1].optimize)
+          {
+            uint16_t distA = abs(modules[i]->hourStepper->getCurrentPosition() - buffer[i][0].position) + abs(modules[i]->minuteStepper->getCurrentPosition() - buffer[i][1].position);
+            uint16_t distB = abs(modules[i]->minuteStepper->getCurrentPosition() - buffer[i][0].position) + abs(modules[i]->hourStepper->getCurrentPosition() - buffer[i][1].position);
+
+            if (distB < distA)
+            {
+              // swap positions
+              MotorControl_t temp = buffer[i][0];
+              buffer[i][0] = buffer[i][1];
+              buffer[i][1] = temp;
+            }
+          }
+
           modules[i]->hourStepper->applyMotorControl(buffer[i][0]);
           modules[i]->minuteStepper->applyMotorControl(buffer[i][1]);
         }

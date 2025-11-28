@@ -13,8 +13,12 @@ ClockModule::ClockModule(int motor)
 
     MotorControl_t hourInit;
     hourInit.position = 135;
+    hourInit.time = 3000;
+    hourInit.direction = MotorDirection_t::MOTOR_CW;
     MotorControl_t minuteInit;
     minuteInit.position = 315;
+    minuteInit.time = 3000;
+    minuteInit.direction = MotorDirection_t::MOTOR_CW;
 
     hourStepper->applyMotorControl(hourInit);
     minuteStepper->applyMotorControl(minuteInit);

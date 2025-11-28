@@ -20,7 +20,8 @@ private:
     float currentSpeed = 0;   // degrees per second
     unsigned long nextStepTime;
     bool isRunning = false;
-    bool continuous = false; // Whether to keep running after reaching target
+    bool continuous = false;    // Whether to keep running after reaching target
+    bool wasContinuous = false; // Track if previous command was continuous
 
     uint16_t targetSpeed = 0; // in degrees per second
 
@@ -63,14 +64,17 @@ private:
         unsigned long elapsedTime = currentTime - lastUpdateTime;
         lastUpdateTime = currentTime;
 
+        // In continuous mode, the target moves infinitely ahead
         if (continuous)
         {
-            targetPosition += ((elapsedTime * targetSpeed * MICRO_STEPS_PER_DEGREE) / 1000000.0) * (clockwise ? 1 : -1);
-
-            if (currentPosition >= MICRO_STEPS_PER_REVOLUTION)
+            // Keep target position far ahead to prevent stopping
+            if (clockwise)
             {
-                currentPosition %= MICRO_STEPS_PER_REVOLUTION;
-                targetPosition = fmod(targetPosition, MICRO_STEPS_PER_REVOLUTION);
+                targetPosition = currentPosition + MICRO_STEPS_PER_REVOLUTION;
+            }
+            else
+            {
+                targetPosition = currentPosition - MICRO_STEPS_PER_REVOLUTION;
             }
         }
 
@@ -84,55 +88,109 @@ private:
             return;
 
         // Stop if reached target (for non-continuous mode)
-        if (!continuous && abs((int)(currentPosition - targetPosition)) < 1)
+        if (!continuous)
         {
-            isRunning = false;
-            currentSpeed = 0;
-            return;
-        }
+            // Calculate actual distance remaining considering direction
+            int32_t diff = targetPosition - currentPosition;
 
-        // float decelerationTime = currentSpeed / acceleration; // Time to stop in seconds
-        float decelerationDist = (currentSpeed * currentSpeed) / (2 * acceleration); // Distance to stop in degrees
-
-        // Calculate distance to target in the direction of movement (clockwise or counterclockwise), accounting for wrap-around
-        uint16_t pos = currentPosition % MICRO_STEPS_PER_REVOLUTION;
-        uint16_t tgt = ((int)targetPosition + MICRO_STEPS_PER_REVOLUTION) % MICRO_STEPS_PER_REVOLUTION;
-        int16_t dist;
-        if (clockwise)
-        {
-            dist = tgt - pos;
-            if (dist < 0)
-                dist += MICRO_STEPS_PER_REVOLUTION;
-        }
-        else
-        {
-            dist = pos - tgt;
-            if (dist < 0)
-                dist += MICRO_STEPS_PER_REVOLUTION;
-        }
-        dist /= MICRO_STEPS_PER_DEGREE;
-
-        if (dist <= decelerationDist)
-        {
-            // Decelerate
-            currentSpeed -= (acceleration * elapsedTime) / 1000000.0;
-        }
-        else
-        {
-            // Accelerate
-            if (currentSpeed < targetSpeed || continuous) // Max speed limit
-                currentSpeed += (acceleration * elapsedTime) / 1000000.0;
-        }
-
-        if (currentTime >= nextStepTime)
-        {
             if (clockwise)
             {
-                currentPosition = (currentPosition + 1) % MICRO_STEPS_PER_REVOLUTION;
+                // Going clockwise - if diff is negative, we haven't wrapped yet
+                if (diff < 0)
+                    diff += MICRO_STEPS_PER_REVOLUTION;
             }
             else
             {
-                currentPosition = (currentPosition == 0) ? (MICRO_STEPS_PER_REVOLUTION - 1) : (currentPosition - 1);
+                // Going counter-clockwise - if diff is positive, we need to wrap
+                if (diff > 0)
+                    diff -= MICRO_STEPS_PER_REVOLUTION;
+                diff = -diff; // Make positive for comparison
+            }
+
+            // if (diff <= 1 && currentSpeed < 10)
+            if (diff <= 1)
+            {
+                isRunning = false;
+                currentSpeed = 0;
+                currentPosition = targetPosition; // Snap to exact position
+                writeStep(currentPosition);
+                return;
+            }
+        }
+
+        // In continuous mode, accelerate to target speed and maintain it
+        if (continuous)
+        {
+            if (currentSpeed < targetSpeed)
+            {
+                float newSpeed = currentSpeed + (acceleration * elapsedTime) / 1000000.0;
+                currentSpeed = (newSpeed > targetSpeed) ? targetSpeed : newSpeed;
+            }
+            else if (currentSpeed > targetSpeed)
+            {
+                float newSpeed = currentSpeed - (acceleration * elapsedTime) / 1000000.0;
+                currentSpeed = (newSpeed < targetSpeed) ? targetSpeed : newSpeed;
+            }
+        }
+        else
+        {
+            // Position mode: use acceleration/deceleration profile
+            float decelerationDist = (currentSpeed * currentSpeed) / (2 * acceleration); // Distance to stop in degrees
+
+            // Calculate distance to target in the direction of movement
+            int32_t diff = targetPosition - currentPosition;
+            float dist;
+
+            if (clockwise)
+            {
+                // Going clockwise
+                if (diff < 0)
+                    diff += MICRO_STEPS_PER_REVOLUTION;
+                dist = diff / (float)MICRO_STEPS_PER_DEGREE;
+            }
+            else
+            {
+                // Going counter-clockwise
+                if (diff > 0)
+                    diff -= MICRO_STEPS_PER_REVOLUTION;
+                dist = (-diff) / (float)MICRO_STEPS_PER_DEGREE;
+            }
+
+            if (dist <= decelerationDist)
+            {
+                // Decelerate at the same rate as acceleration
+                float newSpeed = currentSpeed - (acceleration * elapsedTime) / 1000000.0;
+                currentSpeed = (newSpeed < 0) ? 0 : newSpeed;
+            }
+            else
+            {
+                // Accelerate toward target speed
+                if (currentSpeed < targetSpeed)
+                {
+                    float newSpeed = currentSpeed + (acceleration * elapsedTime) / 1000000.0;
+                    currentSpeed = (newSpeed > targetSpeed) ? targetSpeed : newSpeed;
+                }
+            }
+        }
+
+        // Prevent speed from going negative
+        if (currentSpeed < 0)
+            currentSpeed = 0;
+
+        if (currentTime >= nextStepTime && currentSpeed > 0)
+        {
+            if (clockwise)
+            {
+                currentPosition++;
+                if (currentPosition >= MICRO_STEPS_PER_REVOLUTION)
+                    currentPosition = 0;
+            }
+            else
+            {
+                if (currentPosition == 0)
+                    currentPosition = MICRO_STEPS_PER_REVOLUTION - 1;
+                else
+                    currentPosition--;
             }
 
             writeStep(currentPosition);
@@ -140,9 +198,6 @@ private:
         }
 
         esp_timer_start_once(timer, 100); // delay in microseconds
-
-        // esp_timer_start_once(timer, 500); // delay in microseconds
-        // esp_timer_start_once(timer, (1000000 / (currentSpeed * MICRO_STEPS_PER_DEGREE))); // delay in microseconds
     }
 
     const esp_timer_create_args_t timer_args = {
@@ -185,73 +240,242 @@ public:
 
         setPWMDuty(pin2A, sinTable[step90]);
         digitalWrite(pin2B, step90 <= (MICROSTEPS * 2) ? LOW : HIGH);
-
-        // Serial.printf(">s:%d\n", sinTable[step]);
-        // Serial.printf(">r:%d\n", step <= (MICROSTEPS * 2) ? 0 : 255);
     }
 
     void applyMotorControl(const MotorControl_t &control)
     {
+        // Stop the timer to prevent race conditions during state update
+        esp_timer_stop(timer);
+
+        // Normalize current position to valid range first
+        while (currentPosition >= MICRO_STEPS_PER_REVOLUTION)
+            currentPosition -= MICRO_STEPS_PER_REVOLUTION;
+        while (currentPosition < 0)
+            currentPosition += MICRO_STEPS_PER_REVOLUTION;
+
         if (control.keepRunning == false)
         {
-            targetPosition = control.position * MICRO_STEPS_PER_DEGREE;
-            targetSpeed = control.speed;
-            acceleration = control.acceleration;
-            currentSpeed = fmax(currentSpeed, 1);
+            // Position mode
+            float newTargetPosition = control.position * MICRO_STEPS_PER_DEGREE;
 
-            if (!isRunning) // preserve direction if already running
+            // Ensure target position is in valid range [0, MICRO_STEPS_PER_REVOLUTION)
+            while (newTargetPosition >= MICRO_STEPS_PER_REVOLUTION)
+                newTargetPosition -= MICRO_STEPS_PER_REVOLUTION;
+            while (newTargetPosition < 0)
+                newTargetPosition += MICRO_STEPS_PER_REVOLUTION;
+
+            uint16_t newTargetSpeed = control.speed;
+            uint32_t newAcceleration = control.acceleration;
+            bool newClockwise = clockwise; // Default to current direction
+
+            // For smooth starts: only preserve speed if we're continuing in same direction
+            // and the new target makes sense with current motion
+            bool shouldPreserveSpeed = false;
+
+            if (isRunning)
             {
-                if (control.direction == MotorDirection_t::MOTOR_SHORTEST)
+                if (wasContinuous)
                 {
-                    int16_t diff = targetPosition - currentPosition;
-                    if (diff != 0)
-                    {
-                        diff = (diff + MICRO_STEPS_PER_REVOLUTION) % MICRO_STEPS_PER_REVOLUTION; // Normalize to [0, 360)
-                        clockwise = diff < (MICRO_STEPS_PER_REVOLUTION / 2);
-                    }
+                    // Coming from continuous mode - always preserve speed for smooth transition
+                    shouldPreserveSpeed = true;
+                    // Keep existing direction when coming from continuous
                 }
                 else
                 {
-                    clockwise = control.direction != MotorDirection_t::MOTOR_CCW;
+                    // Check if new target is in the same general direction
+                    int32_t diff = newTargetPosition - currentPosition;
+
+                    if (clockwise && diff > 0 && diff < MICRO_STEPS_PER_REVOLUTION / 2)
+                        shouldPreserveSpeed = true;
+                    else if (!clockwise && diff < 0 && diff > -(MICRO_STEPS_PER_REVOLUTION / 2))
+                        shouldPreserveSpeed = true;
                 }
             }
 
-            nextStepTime = micros();
-            isRunning = true;
-            continuous = false;
+            if (shouldPreserveSpeed && currentSpeed >= 1)
+            {
+                // Keep current speed for smooth transition
+                // Don't reset speed
+            }
+            else
+            {
+                // Start from low speed for smooth acceleration
+                currentSpeed = 1;
+            }
 
-            if (control.time != UINT16_MAX)
+            // Determine direction
+            if (wasContinuous)
+            {
+                // Coming from continuous mode - keep current direction for smooth transition
+                newClockwise = clockwise;
+
+                // CRITICAL: Ensure we stop at the FIRST occurrence of target position
+                // We allow up to one full rotation (360°), but not multiple loops
+                // The target position is already normalized to [0, 360), so we just need
+                // to make sure we hit it on this revolution, not the next one
+            }
+            else if (!isRunning || !shouldPreserveSpeed) // Set direction if motor was stopped or changing direction
+            {
+                if (control.direction == MotorDirection_t::MOTOR_SHORTEST)
+                {
+                    // Calculate shortest path
+                    int32_t diff = newTargetPosition - currentPosition;
+
+                    // Normalize to range [-MICRO_STEPS_PER_REVOLUTION/2, MICRO_STEPS_PER_REVOLUTION/2]
+                    while (diff > MICRO_STEPS_PER_REVOLUTION / 2)
+                        diff -= MICRO_STEPS_PER_REVOLUTION;
+                    while (diff < -(MICRO_STEPS_PER_REVOLUTION / 2))
+                        diff += MICRO_STEPS_PER_REVOLUTION;
+
+                    // Positive diff means clockwise is shorter
+                    newClockwise = (diff > 0);
+                }
+                else
+                {
+                    newClockwise = control.direction != MotorDirection_t::MOTOR_CCW;
+                }
+            }
+
+            // Calculate time-based motion profile if time is specified
+            if (control.time != UINT16_MAX && control.time > 0)
             {
                 float seconds = control.time / 1000.0;
 
-                uint16_t diff = abs((targetPosition / MICRO_STEPS_PER_DEGREE) - (currentPosition / MICRO_STEPS_PER_DEGREE));
+                // Calculate distance to travel in degrees based on direction
+                int32_t diff = newTargetPosition - currentPosition;
 
-                if (!clockwise)
-                    diff = 360 - diff;
+                if (newClockwise)
+                {
+                    // Going clockwise
+                    if (diff < 0)
+                        diff += MICRO_STEPS_PER_REVOLUTION;
+                }
+                else
+                {
+                    // Going counter-clockwise
+                    if (diff > 0)
+                        diff -= MICRO_STEPS_PER_REVOLUTION;
+                    diff = -diff; // Make positive for calculation
+                }
 
-                acceleration = (4 * diff) / (seconds * seconds);
-                targetSpeed = acceleration * (seconds / 2);
+                float distDegrees = diff / (float)MICRO_STEPS_PER_DEGREE;
+
+                // Triangular velocity profile: accelerate for half time, decelerate for half time
+                // Distance = (1/2) * vmax * t (for triangular profile with equal accel/decel)
+                // Since we split time in half: vmax = (2 * distance) / time
+                newTargetSpeed = (2.0 * distDegrees) / seconds;
+
+                // Acceleration: vmax = a * (t/2), so a = 2*vmax / t
+                newAcceleration = (2.0 * newTargetSpeed) / seconds;
+
+                // Ensure reasonable limits
+                if (newTargetSpeed > 1440)
+                    newTargetSpeed = 1440; // Max 4 rev/sec for longer distances
+                if (newAcceleration > 2000)
+                    newAcceleration = 2000; // Higher acceleration limit
             }
+            else
+            {
+                // No explicit time specified - calculate required speed based on distance
+                // This ensures motors taking longer paths speed up appropriately
+
+                // Calculate distance in the current direction
+                int32_t diff = (int32_t)newTargetPosition - (int32_t)currentPosition;
+
+                if (newClockwise)
+                {
+                    // Going clockwise: if diff is negative, add full revolution
+                    if (diff < 0)
+                        diff += MICRO_STEPS_PER_REVOLUTION;
+                    // Ensure diff is in valid range [0, MICRO_STEPS_PER_REVOLUTION)
+                    if (diff >= MICRO_STEPS_PER_REVOLUTION)
+                        diff = diff % MICRO_STEPS_PER_REVOLUTION;
+                }
+                else
+                {
+                    // Going counter-clockwise: if diff is positive, subtract full revolution
+                    if (diff > 0)
+                        diff -= MICRO_STEPS_PER_REVOLUTION;
+                    diff = -diff; // Make positive for calculation
+                    // Ensure diff is in valid range [0, MICRO_STEPS_PER_REVOLUTION)
+                    if (diff >= MICRO_STEPS_PER_REVOLUTION)
+                        diff = diff % MICRO_STEPS_PER_REVOLUTION;
+                    if (diff < 0)
+                        diff = 0;
+                }
+
+                float distDegrees = diff / (float)MICRO_STEPS_PER_DEGREE;
+
+                // Sanity check - if distance is unreasonably large, something went wrong
+                // Clamp to maximum one full revolution
+                if (distDegrees > 360)
+                {
+                    distDegrees = fmod(distDegrees, 360.0);
+                    if (distDegrees == 0)
+                        distDegrees = 360; // If exactly at target after modulo, go full circle
+                }
+
+                // Calculate speed multiplier based on distance
+                // Base case: 180° or less travels at specified speed
+                // Longer distances scale up proportionally
+                if (distDegrees > 180)
+                {
+                    float speedMultiplier = distDegrees / 180.0;
+                    newTargetSpeed = newTargetSpeed * speedMultiplier;
+                    newAcceleration = newAcceleration * speedMultiplier;
+
+                    // Apply reasonable limits
+                    if (newTargetSpeed > 1440)
+                        newTargetSpeed = 1440;
+                    if (newAcceleration > 2000)
+                        newAcceleration = 2000;
+                }
+                // For distances <= 180°, use the speeds as specified
+            }
+
+            // Apply all changes atomically
+            targetPosition = newTargetPosition;
+            targetSpeed = newTargetSpeed;
+            acceleration = newAcceleration;
+            clockwise = newClockwise;
+            continuous = false;
+            wasContinuous = false; // Clear flag after using it
+            nextStepTime = micros();
+            isRunning = true;
         }
         else
         {
-            targetPosition = control.position * MICRO_STEPS_PER_DEGREE;
+            // Continuous rotation mode (keepRunning = true)
+
+            // Preserve current speed for smooth transition
+            if (!isRunning || currentSpeed < 1)
+                currentSpeed = 1;
+
+            // Apply all changes atomically
             targetSpeed = control.speed;
             acceleration = control.acceleration;
-            currentSpeed = fmax(currentSpeed, 1);
-            nextStepTime = micros();
             clockwise = control.direction != MotorDirection_t::MOTOR_CCW;
-            isRunning = true;
             continuous = true;
+            wasContinuous = true; // Mark that we're in continuous mode
+            nextStepTime = micros();
+            isRunning = true;
+
+            // Set target position far ahead in the direction of travel
+            // This will be continuously updated in the update() function
+            if (clockwise)
+                targetPosition = currentPosition + MICRO_STEPS_PER_REVOLUTION;
+            else
+                targetPosition = currentPosition - MICRO_STEPS_PER_REVOLUTION;
         }
 
+        // Restart timer after all state is updated
         esp_timer_start_once(timer, 0); // Start immediately
     }
 
-    // Utility functions
-    uint16_t getCurrentPosition() const // in DEGREES
+    // get Current position in degrees
+    uint16_t getCurrentPosition() const
     {
-        return currentPosition / MICRO_STEPS_PER_DEGREE;
+        return (currentPosition % MICRO_STEPS_PER_REVOLUTION) / MICRO_STEPS_PER_DEGREE;
     }
 
     bool isMotorRunning() const
@@ -262,6 +486,8 @@ public:
     void stop()
     {
         isRunning = false;
+        continuous = false;
+        wasContinuous = false;
     }
 
     void setPosition(uint16_t position) // in degrees
@@ -269,6 +495,7 @@ public:
         // Set the current position for calibration purposes
         // This allows you to tell the motor where it actually is
         currentPosition = position * MICRO_STEPS_PER_DEGREE;
+        targetPosition = currentPosition;
         writeStep(currentPosition);
     }
 
@@ -280,5 +507,12 @@ public:
         digitalWrite(pin2A, LOW);
         digitalWrite(pin2B, LOW);
         isRunning = false;
+        continuous = false;
+        wasContinuous = false;
+    }
+
+    void pause()
+    {
+        esp_timer_stop(timer);
     }
 };

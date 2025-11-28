@@ -34,6 +34,7 @@
       <option value="interactive">Interactive</option>
       <option value="wave">/-\|/-\|/</option>
       <option value="altwave">|&lt;-&gt;|&lt;-&gt;|</option>
+      <option value="altwavediag">/&lt;\&gt;/&lt;\&gt;/</option>
     </select>
     <!-- </p>
   <p> -->
@@ -111,8 +112,8 @@
     }
 
     function initWebSocket() {
-      var gateway = `ws://${window.location.hostname || 'clockclock'}/ws`;
-      // var gateway = `ws://192.168.10.111/ws`;
+      var gateway = `ws://${window.location.hostname || 'clockclock.local'}/ws`;
+
       websocket = new WebSocket(gateway);
       websocket.onopen = onOpen;
       websocket.onclose = onClose;

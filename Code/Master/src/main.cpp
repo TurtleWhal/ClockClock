@@ -60,6 +60,7 @@ enum
   MODE_CUSTOM,
   MODE_WAVE,
   MODE_ALT_WAVE,
+  MODE_ALT_WAVE_DIAG,
 };
 
 int mode = MODE_TIME;
@@ -189,7 +190,7 @@ void loop()
   case MODE_TIME:
     if (lastMinute != myTZ.minute() || modeChanged)
     {
-      clearBuffer({.position = 135, .time = 5000});
+      clearBuffer({.position = 135, .time = 8000});
 
       int hour = myTZ.hourFormat12();
       int minute = myTZ.minute();
@@ -248,7 +249,7 @@ void loop()
   case MODE_DIAGONAL:
     if (modeChanged)
     {
-      clearBuffer({.time = 5000});
+      clearBuffer({.time = 5000, .optimize = false});
 
       for (int i = 0; i < WIDTH; i++)
       {
@@ -274,13 +275,15 @@ void loop()
         {
           buffer[i][j][0].position = 135;
           buffer[i][j][1].position = 315;
-          buffer[i][j][0].direction = MotorDirection_t::MOTOR_CW;
-          buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
+          buffer[i][j][0].time = 3000;
+          buffer[i][j][1].time = 3000;
+          buffer[i][j][0].optimize = false;
+          buffer[i][j][1].optimize = false;
         }
       }
 
       writeBuffer();
-      delay(CLEAR_DELAY);
+      delay(4000);
 
       for (int i = 0; i < WIDTH; i++)
       {
@@ -288,8 +291,8 @@ void loop()
         {
           buffer[i][j][0].position = 135 - (i * 10);
           buffer[i][j][1].position = 315 - (i * 10);
-          buffer[i][j][0].speed = 100;
-          buffer[i][j][1].speed = 100;
+          buffer[i][j][0].speed = 60;
+          buffer[i][j][1].speed = 60;
           buffer[i][j][0].keepRunning = true;
           buffer[i][j][1].keepRunning = true;
           buffer[i][j][0].direction = MotorDirection_t::MOTOR_CW;
@@ -297,7 +300,7 @@ void loop()
         }
 
         writeBuffer();
-        delay(600);
+        delay(400);
       }
       writeBuffer();
     }
@@ -314,13 +317,15 @@ void loop()
         {
           buffer[i][j][0].position = 90;
           buffer[i][j][1].position = 270;
-          buffer[i][j][0].direction = MotorDirection_t::MOTOR_CCW;
-          buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
+          buffer[i][j][0].time = 3000;
+          buffer[i][j][1].time = 3000;
+          buffer[i][j][0].optimize = false;
+          buffer[i][j][1].optimize = false;
         }
       }
 
-      // writeBuffer();
-      // delay(CLEAR_DELAY);
+      writeBuffer();
+      delay(4000);
 
       for (int i = 0; i < WIDTH; i++)
       {
@@ -328,8 +333,49 @@ void loop()
         {
           buffer[i][j][0].position = 90 + (i * 10);
           buffer[i][j][1].position = 270 - (i * 10);
-          buffer[i][j][0].speed = 100;
-          buffer[i][j][1].speed = 100;
+          buffer[i][j][0].speed = 60;
+          buffer[i][j][1].speed = 60;
+          buffer[i][j][0].keepRunning = true;
+          buffer[i][j][1].keepRunning = true;
+          buffer[i][j][0].direction = MotorDirection_t::MOTOR_CCW;
+          buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
+        }
+
+        writeBuffer();
+        delay(400);
+      }
+      writeBuffer();
+    }
+    break;
+  case MODE_ALT_WAVE_DIAG:
+    if (modeChanged)
+    {
+      clearBuffer();
+
+      for (int i = 0; i < WIDTH; i++)
+      {
+        for (int j = 0; j < HEIGHT; j++)
+        {
+          buffer[i][j][0].position = 135;
+          buffer[i][j][1].position = 315;
+          buffer[i][j][0].time = 3000;
+          buffer[i][j][1].time = 3000;
+          buffer[i][j][0].optimize = false;
+          buffer[i][j][1].optimize = false;
+        }
+      }
+
+      writeBuffer();
+      delay(4000);
+
+      for (int i = 0; i < WIDTH; i++)
+      {
+        for (int j = 0; j < HEIGHT; j++)
+        {
+          buffer[i][j][0].position = 90 + (i * 10);
+          buffer[i][j][1].position = 270 - (i * 10);
+          buffer[i][j][0].speed = 60;
+          buffer[i][j][1].speed = 60;
           buffer[i][j][0].keepRunning = true;
           buffer[i][j][1].keepRunning = true;
           buffer[i][j][0].direction = MotorDirection_t::MOTOR_CCW;
@@ -435,6 +481,9 @@ void sendStatus()
     break;
   case MODE_ALT_WAVE:
     modeName = "altwave";
+    break;
+  case MODE_ALT_WAVE_DIAG:
+    modeName = "altwavediag";
     break;
   }
   // Send the constructed JSON string over WebSocket to all connected clients
@@ -583,6 +632,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         mode = MODE_WAVE;
       else if (newmode == "altwave")
         mode = MODE_ALT_WAVE;
+      else if (newmode == "altwavediag")
+        mode = MODE_ALT_WAVE_DIAG;
 
       customText = doc["custom"].as<String>();
       customText.toUpperCase();

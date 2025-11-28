@@ -10,14 +10,15 @@ enum class MotorDirection_t : uint8_t
     MOTOR_SHORTEST // Shortest path
 };
 
-struct MotorControl_t // 10 bytes
+struct MotorControl_t
 {
     uint16_t position = 0;                                         // Position in degrees
     uint8_t acceleration = 50;                                     // Acceleration in degrees per second per second
     uint16_t speed = 150;                                          // Speed in degrees per second
     MotorDirection_t direction = MotorDirection_t::MOTOR_SHORTEST; // Direction of rotation
-    bool keepRunning = false;                                      // Whether the motor should keep running after reaching the target position
     uint16_t time = UINT16_MAX;                                    // Time in milliseconds to reach the target position
+    bool keepRunning = false;                                      // Whether the motor should keep running after reaching the target position
+    bool optimize = true;                                          // Whether to optimize which hand moves to which position to minimize distance. Must match on both hands and `keepRunning` must be `false`
 };
 
 #endif // MOTORCONTROL_H
