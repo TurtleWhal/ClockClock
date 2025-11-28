@@ -20,7 +20,7 @@ AsyncWebSocket ws("/ws");
 SerialTransfer serialTransfer;
 
 void writeBuffer();
-void drawChar(uint8_t num, int x, int y);
+void drawChar(char ch, int x, int y);
 void drawTime();
 void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
              void *arg, uint8_t *data, size_t len);
@@ -190,16 +190,16 @@ void loop()
   case MODE_TIME:
     if (lastMinute != myTZ.minute() || modeChanged)
     {
-      clearBuffer({.position = 135, .time = 8000});
+      clearBuffer({.position = 135, .time = 5000});
 
       int hour = myTZ.hourFormat12();
       int minute = myTZ.minute();
       int second = myTZ.second();
 
-      drawChar(hour / 10 % 10, 0, 0);
-      drawChar(hour % 10, 2, 0);
-      drawChar(minute / 10 % 10, 4, 0);
-      drawChar(minute % 10, 6, 0);
+      drawChar(48 + hour / 10 % 10, 0, 0);
+      drawChar(48 + hour % 10, 2, 0);
+      drawChar(48 + minute / 10 % 10, 4, 0);
+      drawChar(48 + minute % 10, 6, 0);
 
       writeBuffer();
       lastMinute = myTZ.minute();
@@ -209,7 +209,7 @@ void loop()
   case MODE_CUSTOM:
     if (modeChanged)
     {
-      clearBuffer({.position = 135, .time = 5000});
+      clearBuffer({.position = 135, .time = 2000});
 
       // for (int i = 0; i < WIDTH; i++)
       // {
@@ -222,7 +222,7 @@ void loop()
 
       for (int i = 0; i < min((int)customText.length(), 4); i++)
       {
-        drawChar(CHAR_TO_FONT(customText.charAt(i)), (i * 2) + (4 - customText.length()), 0);
+        drawChar(customText.charAt(i), (i * 2) + (4 - customText.length()), 0);
       }
       writeBuffer();
     }
@@ -519,9 +519,9 @@ void sendStatus()
   ws.textAll(jsonString);
 }
 
-void drawChar(uint8_t num, int x, int y)
+void drawChar(char ch, int x, int y)
 {
-  auto c = font[num];
+  auto c = *getCharacter(ch);
 
   buffer[x][y][0].position = c[0][0][0];
   buffer[x][y][1].position = c[0][0][1];
@@ -636,7 +636,6 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         mode = MODE_ALT_WAVE_DIAG;
 
       customText = doc["custom"].as<String>();
-      customText.toUpperCase();
 
       modeChanged = true;
 
