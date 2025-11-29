@@ -108,6 +108,7 @@ private:
             }
 
             // if (diff <= 1 && currentSpeed < 10)
+            // if (diff <= 1 && currentSpeed < 35)
             if (diff <= 1)
             {
                 isRunning = false;

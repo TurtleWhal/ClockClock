@@ -1,6 +1,11 @@
-# Name,   Type,    SubType,   Offset,   Size,     Flags
-nvs,      data,    nvs,      0x9000,   0x5000,
-otadata,  data,    ota,      0xe000,   0x2000,
-ota_0,    app,     ota_0,    0x10000,  0x1E0000,
-ota_1,    app,     ota_1,    0x1F0000, 0x1E0000,
-spiffs,   data,    spiffs,   0x3D0000, 0x19000,
+# Name,     Type, SubType, Offset,     Size,      Flags
+nvs,        data, nvs,     0x9000,     0x5000,
+otadata,    data, ota,     0xE000,     0x2000,
+phy_init,   data, phy,     0x10000,    0x1000,
+
+# OTA partitions (aligned to 0x10000 boundaries)
+ota_0,      app,  ota_0,   0x20000,    0x1E0000,
+ota_1,      app,  ota_1,   0x200000,   0x1E0000,
+
+# 100 KB SPIFFS (0x19000)
+spiffs,     data, spiffs,  0x3E0000,   0x19000,

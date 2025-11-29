@@ -26,6 +26,9 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
              void *arg, uint8_t *data, size_t len);
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 
+uint8_t *psramFirmware = nullptr;
+size_t psramFirmwareSize = 0;
+
 void sendFile(String filename);
 void sendStatus();
 
@@ -37,7 +40,6 @@ void sendStatus();
 #define CLEAR_DELAY 5000
 
 // Holds the buffer for drawing
-// int buffer[WIDTH][HEIGHT][2];
 MotorControl_t buffer[WIDTH][HEIGHT][2];
 
 void clearBuffer(MotorControl_t fill = MotorControl_t())
@@ -54,6 +56,7 @@ void clearBuffer(MotorControl_t fill = MotorControl_t())
 
 enum
 {
+  MODE_CYCLE,
   MODE_TIME,
   MODE_CLEAR,
   MODE_DIAGONAL,
@@ -63,7 +66,7 @@ enum
   MODE_ALT_WAVE_DIAG,
 };
 
-int mode = MODE_TIME;
+int mode = MODE_CYCLE;
 String customText = "";
 
 uint8_t moduleMap[8][3][2] = {
@@ -91,6 +94,15 @@ void setup()
   Serial.print(VERSION_DATE);
   Serial.print(" at ");
   Serial.println(VERSION_TIME);
+
+  if (!psramFound())
+  {
+    Serial.println("No PSRAM detected!");
+  }
+  else
+  {
+    Serial.println("PSRAM available!");
+  }
 
   // Initialize SPIFFS
   if (!SPIFFS.begin(true))
@@ -134,9 +146,37 @@ void setup()
   server.on("/upload", HTTP_POST, [](AsyncWebServerRequest *request)
             { request->send(200); }, handleUpload);
 
-  // // run handleUpload function when any file is uploaded
-  // server.on("/upload", HTTP_GET, [](AsyncWebServerRequest *request)
-  //           { request->send(200, "text/html", listFiles(true)); });
+  // Route to download firmware from PSRAM
+  server.on("/firmware", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+    if (!psramFirmware || psramFirmwareSize == 0) {
+      request->send(404, "text/plain", "No firmware available in PSRAM");
+      return;
+    }
+    
+    // Create response with firmware binary data
+    AsyncWebServerResponse *response = request->beginResponse(
+      "application/octet-stream",
+      psramFirmwareSize,
+      [](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+        size_t remaining = psramFirmwareSize - index;
+        size_t toSend = (remaining < maxLen) ? remaining : maxLen;
+        
+        if (toSend > 0 && psramFirmware) {
+          memcpy(buffer, psramFirmware + index, toSend);
+        }
+        
+        return toSend;
+      }
+    );
+    
+    // Set headers to trigger download
+    response->addHeader("Content-Disposition", "attachment; filename=firmware.bin");
+    response->addHeader("Content-Length", String(psramFirmwareSize));
+    
+    request->send(response);
+    
+    Serial.println("Firmware download requested, size: " + String(psramFirmwareSize) + " bytes"); });
 
   // Start webserver
   ws.onEvent(onEvent);
@@ -151,7 +191,140 @@ void setup()
 }
 
 bool modeChanged = true;
+int lastSecond = -1;
 int lastMinute = -1;
+
+void drawTime()
+{
+  int hour = myTZ.hourFormat12();
+  int minute = myTZ.minute();
+  int second = myTZ.second();
+
+  drawChar(48 + hour / 10 % 10, 0, 0);
+  drawChar(48 + hour % 10, 2, 0);
+  drawChar(48 + minute / 10 % 10, 4, 0);
+  drawChar(48 + minute % 10, 6, 0);
+}
+
+void wave()
+{
+  for (int i = WIDTH; i >= 0; i--)
+  {
+    for (int j = 0; j < HEIGHT; j++)
+    {
+      buffer[i][j][0].position = 135;
+      buffer[i][j][1].position = 315;
+      buffer[i][j][0].time = 4000;
+      buffer[i][j][1].time = 4000;
+      buffer[i][j][0].optimize = false;
+      buffer[i][j][1].optimize = false;
+    }
+
+    writeBuffer();
+    delay(400);
+  }
+
+  delay(4000);
+
+  for (int i = WIDTH; i >= 0; i--)
+  {
+    for (int j = 0; j < HEIGHT; j++)
+    {
+      buffer[i][j][0].position = 135 - (i * 10);
+      buffer[i][j][1].position = 315 - (i * 10);
+      buffer[i][j][0].speed = 40;
+      buffer[i][j][1].speed = 40;
+      buffer[i][j][0].keepRunning = true;
+      buffer[i][j][1].keepRunning = true;
+      buffer[i][j][0].direction = MotorDirection_t::MOTOR_CW;
+      buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
+    }
+
+    writeBuffer();
+    delay(600);
+  }
+  writeBuffer();
+}
+
+void altwave()
+{
+  for (int i = WIDTH; i >= 0; i--)
+  {
+    for (int j = 0; j < HEIGHT; j++)
+    {
+      buffer[i][j][0].position = 45;
+      buffer[i][j][1].position = 315;
+      buffer[i][j][0].time = 4000;
+      buffer[i][j][1].time = 4000;
+      buffer[i][j][0].optimize = false;
+      buffer[i][j][1].optimize = false;
+    }
+
+    writeBuffer();
+    delay(400);
+  }
+
+  delay(4000);
+
+  for (int i = WIDTH; i >= 0; i--)
+  {
+    for (int j = 0; j < HEIGHT; j++)
+    {
+      buffer[i][j][0].position = 45 + (i * 10);
+      buffer[i][j][1].position = 315 - (i * 10);
+      buffer[i][j][0].speed = 40;
+      buffer[i][j][1].speed = 40;
+      buffer[i][j][0].keepRunning = true;
+      buffer[i][j][1].keepRunning = true;
+      buffer[i][j][0].direction = MotorDirection_t::MOTOR_CCW;
+      buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
+    }
+
+    writeBuffer();
+    delay(400);
+  }
+  writeBuffer();
+}
+
+void altwavediag()
+{
+  for (int i = WIDTH; i >= 0; i--)
+  {
+    for (int j = 0; j < HEIGHT; j++)
+    {
+      buffer[i][j][0].position = 135;
+      buffer[i][j][1].position = 315;
+      buffer[i][j][0].time = 4000;
+      buffer[i][j][1].time = 4000;
+      buffer[i][j][0].optimize = false;
+      buffer[i][j][1].optimize = false;
+    }
+    writeBuffer();
+    delay(400);
+  }
+
+  writeBuffer();
+  delay(4000);
+
+  for (int i = WIDTH; i >= 0; i--)
+  {
+    for (int j = 0; j < HEIGHT; j++)
+    {
+      buffer[i][j][0].position = 135 + (i * 10);
+      buffer[i][j][1].position = 315 - (i * 10);
+      buffer[i][j][0].speed = 40;
+      buffer[i][j][1].speed = 40;
+      buffer[i][j][0].keepRunning = true;
+      buffer[i][j][1].keepRunning = true;
+      buffer[i][j][0].direction = MotorDirection_t::MOTOR_CCW;
+      buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
+    }
+
+    writeBuffer();
+    delay(400);
+  }
+  writeBuffer();
+}
 
 void loop()
 {
@@ -161,15 +334,6 @@ void loop()
     Serial.println("Uploading firmware, Clearing Hands");
 
     clearBuffer({.position = 90, .time = 1000});
-    // for (int i = 0; i < WIDTH; i++)
-    // {
-    //   for (int j = 0; j < HEIGHT; j++)
-    //   {
-    //     buffer[i][j][0].position = 90;
-    //     buffer[i][j][1].position = 90;
-    //   }
-    // }
-    // TODO: was speed false and optimize false, also make writebuffer calculate the amount of time to get to position
     writeBuffer();
     delay(CLEAR_DELAY);
 
@@ -187,19 +351,46 @@ void loop()
 
   switch (mode)
   {
+  case MODE_CYCLE:
+    if (lastSecond != myTZ.second() || modeChanged)
+    {
+      if (lastMinute != myTZ.minute() || modeChanged)
+      {
+        clearBuffer({.position = 135, .time = 10000});
+
+        drawTime();
+
+        writeBuffer();
+
+        lastMinute = myTZ.minute();
+      }
+      else if (lastSecond == 20)
+      {
+        // randomly select an animation
+        int animation = random(0, 3);
+        switch (animation)
+        {
+        case 0:
+          wave();
+          break;
+        case 1:
+          altwave();
+          break;
+        case 2:
+          altwavediag();
+          break;
+        }
+      }
+
+      lastSecond = myTZ.second();
+    }
+    break;
   case MODE_TIME:
     if (lastMinute != myTZ.minute() || modeChanged)
     {
       clearBuffer({.position = 135, .time = 5000});
 
-      int hour = myTZ.hourFormat12();
-      int minute = myTZ.minute();
-      int second = myTZ.second();
-
-      drawChar(48 + hour / 10 % 10, 0, 0);
-      drawChar(48 + hour % 10, 2, 0);
-      drawChar(48 + minute / 10 % 10, 4, 0);
-      drawChar(48 + minute % 10, 6, 0);
+      drawTime();
 
       writeBuffer();
       lastMinute = myTZ.minute();
@@ -211,19 +402,9 @@ void loop()
     {
       clearBuffer({.position = 135, .time = 2000});
 
-      // for (int i = 0; i < WIDTH; i++)
-      // {
-      //   for (int j = 0; j < HEIGHT; j++)
-      //   {
-      //     buffer[i][j][0].position = 135;
-      //     buffer[i][j][1].position = 135;
-      //   }
-      // }
-
       for (int i = 0; i < min((int)customText.length(), 4); i++)
-      {
         drawChar(customText.charAt(i), (i * 2) + (4 - customText.length()), 0);
-      }
+
       writeBuffer();
     }
     break;
@@ -232,15 +413,6 @@ void loop()
     if (modeChanged)
     {
       clearBuffer({.position = 90, .time = 1000});
-
-      // for (int i = 0; i < WIDTH; i++)
-      // {
-      //   for (int j = 0; j < HEIGHT; j++)
-      //   {
-      //     buffer[i][j][0].position = 90;
-      //     buffer[i][j][1].position = 90;
-      //   }
-      // }
 
       writeBuffer();
     }
@@ -267,138 +439,25 @@ void loop()
   case MODE_WAVE:
     if (modeChanged)
     {
-      clearBuffer();
-
-      for (int i = 0; i < WIDTH; i++)
-      {
-        for (int j = 0; j < HEIGHT; j++)
-        {
-          buffer[i][j][0].position = 135;
-          buffer[i][j][1].position = 315;
-          buffer[i][j][0].time = 3000;
-          buffer[i][j][1].time = 3000;
-          buffer[i][j][0].optimize = false;
-          buffer[i][j][1].optimize = false;
-        }
-      }
-
-      writeBuffer();
-      delay(4000);
-
-      for (int i = 0; i < WIDTH; i++)
-      {
-        for (int j = 0; j < HEIGHT; j++)
-        {
-          buffer[i][j][0].position = 135 - (i * 10);
-          buffer[i][j][1].position = 315 - (i * 10);
-          buffer[i][j][0].speed = 60;
-          buffer[i][j][1].speed = 60;
-          buffer[i][j][0].keepRunning = true;
-          buffer[i][j][1].keepRunning = true;
-          buffer[i][j][0].direction = MotorDirection_t::MOTOR_CW;
-          buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
-        }
-
-        writeBuffer();
-        delay(400);
-      }
-      writeBuffer();
+      wave();
     }
     break;
 
   case MODE_ALT_WAVE:
     if (modeChanged)
     {
-      clearBuffer();
-
-      for (int i = 0; i < WIDTH; i++)
-      {
-        for (int j = 0; j < HEIGHT; j++)
-        {
-          buffer[i][j][0].position = 90;
-          buffer[i][j][1].position = 270;
-          buffer[i][j][0].time = 3000;
-          buffer[i][j][1].time = 3000;
-          buffer[i][j][0].optimize = false;
-          buffer[i][j][1].optimize = false;
-        }
-      }
-
-      writeBuffer();
-      delay(4000);
-
-      for (int i = 0; i < WIDTH; i++)
-      {
-        for (int j = 0; j < HEIGHT; j++)
-        {
-          buffer[i][j][0].position = 90 + (i * 10);
-          buffer[i][j][1].position = 270 - (i * 10);
-          buffer[i][j][0].speed = 60;
-          buffer[i][j][1].speed = 60;
-          buffer[i][j][0].keepRunning = true;
-          buffer[i][j][1].keepRunning = true;
-          buffer[i][j][0].direction = MotorDirection_t::MOTOR_CCW;
-          buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
-        }
-
-        writeBuffer();
-        delay(400);
-      }
-      writeBuffer();
+      altwave();
     }
     break;
   case MODE_ALT_WAVE_DIAG:
     if (modeChanged)
     {
-      clearBuffer();
-
-      for (int i = 0; i < WIDTH; i++)
-      {
-        for (int j = 0; j < HEIGHT; j++)
-        {
-          buffer[i][j][0].position = 135;
-          buffer[i][j][1].position = 315;
-          buffer[i][j][0].time = 3000;
-          buffer[i][j][1].time = 3000;
-          buffer[i][j][0].optimize = false;
-          buffer[i][j][1].optimize = false;
-        }
-      }
-
-      writeBuffer();
-      delay(4000);
-
-      for (int i = 0; i < WIDTH; i++)
-      {
-        for (int j = 0; j < HEIGHT; j++)
-        {
-          buffer[i][j][0].position = 90 + (i * 10);
-          buffer[i][j][1].position = 270 - (i * 10);
-          buffer[i][j][0].speed = 60;
-          buffer[i][j][1].speed = 60;
-          buffer[i][j][0].keepRunning = true;
-          buffer[i][j][1].keepRunning = true;
-          buffer[i][j][0].direction = MotorDirection_t::MOTOR_CCW;
-          buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
-        }
-
-        writeBuffer();
-        delay(400);
-      }
-      writeBuffer();
+      altwavediag();
     }
     break;
   }
 
-  // Serial.println(WiFi.isConnected());
-  // Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
-  // Serial.printf("Max allocatable block: %d\n", ESP.getMaxAllocHeap());
-
-  modeChanged = false; // update at least every 5 seconds
-
-  // modeChanged = true;
-  // delay(5000);
-  // vTaskDelay(1000 / portTICK_PERIOD_MS);
+  modeChanged = false;
 
   ArduinoOTA.handle();
   events(); // ezTime event handler to keep time updated
@@ -406,11 +465,31 @@ void loop()
   delay(100);
 }
 
+void drawChar(char ch, int x, int y)
+{
+  auto c = *getCharacter(ch);
+
+  buffer[x][y][0].position = c[0][0][0];
+  buffer[x][y][1].position = c[0][0][1];
+
+  buffer[x + 1][y][0].position = c[0][1][0];
+  buffer[x + 1][y][1].position = c[0][1][1];
+
+  buffer[x][y + 1][0].position = c[1][0][0];
+  buffer[x][y + 1][1].position = c[1][0][1];
+
+  buffer[x + 1][y + 1][0].position = c[1][1][0];
+  buffer[x + 1][y + 1][1].position = c[1][1][1];
+
+  buffer[x][y + 2][0].position = c[2][0][0];
+  buffer[x][y + 2][1].position = c[2][0][1];
+
+  buffer[x + 1][y + 2][0].position = c[2][1][0];
+  buffer[x + 1][y + 2][1].position = c[2][1][1];
+}
+
 void writeBuffer()
 {
-  // Serial.println("Sending Buffer");
-
-  // if (!uploadingFirmware)
   MotorControl_t sendBuffer[CLOCKS][2];
 
   // convert the x-y buffer array to a linear array for sending to modules arranged in a Z format
@@ -432,12 +511,6 @@ void writeBuffer()
     Serial.print("[" + String(sendBuffer[i][0].position) + ", " + String(sendBuffer[i][1].position) + "], ");
   }
   Serial.println("]");
-
-  // uint16_t sendSize = 0;
-  // uint8_t address = 0;
-  // sendSize = serialTransfer.txObj(address, sendSize);
-  // sendSize = serialTransfer.txObj(sendBuffer, sendSize);
-  // serialTransfer.sendData(sendSize);
 
   for (int module = MODULES - 1; module >= 0; --module)
   {
@@ -464,6 +537,9 @@ void sendStatus()
   String modeName;
   switch (mode)
   {
+  case MODE_CYCLE:
+    modeName = "cycle";
+    break;
   case MODE_TIME:
     modeName = "time";
     break;
@@ -486,13 +562,16 @@ void sendStatus()
     modeName = "altwavediag";
     break;
   }
-  // Send the constructed JSON string over WebSocket to all connected clients
-  String jsonString = "{ \"type\": \"status\", \"mode\": \"" + modeName + "\", \"hasFirmware\": " + (SPIFFS.exists("/firmware.bin") ? "true" : "false") + " }";
+
+  // Check if firmware exists in PSRAM
+  bool hasFirmware = (psramFirmware != nullptr && psramFirmwareSize > 0);
+
+  // Send status JSON to all WebSocket clients
+  String jsonString = "{ \"type\": \"status\", \"mode\": \"" + modeName + "\", \"hasFirmware\": " + (hasFirmware ? "true" : "false") + " }";
   ws.textAll(jsonString);
 
-  // send buffer to webpage
+  // Send buffer positions to webpage
   jsonString = "{ \"type\": \"hands\", \"hands\": [";
-
   for (int i = 0; i < 8; i++)
   {
     jsonString += "[";
@@ -502,69 +581,42 @@ void sendStatus()
       jsonString += String(buffer[i][j][0].position) + "," + String(buffer[i][j][1].position);
       jsonString += "]";
       if (j < 2)
-      {
         jsonString += ",";
-      }
     }
     jsonString += "]";
     if (i < 7)
-    {
       jsonString += ",";
-    }
   }
-
   jsonString += "] }";
 
-  // Send the constructed JSON string over WebSocket to all connected clients
   ws.textAll(jsonString);
-}
-
-void drawChar(char ch, int x, int y)
-{
-  auto c = *getCharacter(ch);
-
-  buffer[x][y][0].position = c[0][0][0];
-  buffer[x][y][1].position = c[0][0][1];
-
-  buffer[x + 1][y][0].position = c[0][1][0];
-  buffer[x + 1][y][1].position = c[0][1][1];
-
-  buffer[x][y + 1][0].position = c[1][0][0];
-  buffer[x][y + 1][1].position = c[1][0][1];
-
-  buffer[x + 1][y + 1][0].position = c[1][1][0];
-  buffer[x + 1][y + 1][1].position = c[1][1][1];
-
-  buffer[x][y + 2][0].position = c[2][0][0];
-  buffer[x][y + 2][1].position = c[2][0][1];
-
-  buffer[x + 1][y + 2][0].position = c[2][1][0];
-  buffer[x + 1][y + 2][1].position = c[2][1][1];
 }
 
 void sendFile(String filename)
 {
-  // Send file to modules
-  Serial.println("Opening file: " + filename);
-  File firmware = SPIFFS.open("/" + filename, "r");
-  Serial.println("File size: " + String(firmware.size()) + " bytes");
-  char *data = new char[firmware.size()];
-  firmware.readBytes(data, firmware.size());
+  if (!psramFirmware || psramFirmwareSize == 0)
+  {
+    Serial.println("No firmware in PSRAM!");
+    return;
+  }
 
-  uint32_t fileSize = firmware.size();
+  uint32_t fileSize = psramFirmwareSize;
 
+  Serial.println("Sending firmware from PSRAM");
+  Serial.println("File size: " + String(fileSize) + " bytes");
+
+  // Send "start firmware update" header
   uint16_t headerSize = 0;
-
   uint8_t address = 201;
   headerSize = serialTransfer.txObj(address, headerSize);
   headerSize = serialTransfer.txObj(fileSize, headerSize);
-
   serialTransfer.sendData(headerSize);
 
   delay(250); // wait for modules to forward headers and switch to passthrough mode
 
+  // Split into packets
   uint8_t dataLen = MAX_PACKET_SIZE - 4;
-  uint16_t numPackets = fileSize / dataLen; // Reserve two bytes for current file index
+  uint16_t numPackets = fileSize / dataLen; // Reserve bytes for current file index
 
   if (fileSize % dataLen) // Add an extra transmission if needed
     numPackets++;
@@ -573,11 +625,11 @@ void sendFile(String filename)
   {
     uint32_t fileIndex = i * dataLen; // Determine the current file index
 
-    if ((fileIndex + dataLen) > fileSize) // Determine data length for the last packet if file length is not an exact multiple of MAX_PACKET_SIZE-2
+    if ((fileIndex + dataLen) > fileSize) // Determine data length for the last packet if file length is not an exact multiple of MAX_PACKET_SIZE-4
       dataLen = fileSize - fileIndex;
 
-    uint8_t sendSize = serialTransfer.txObj(fileIndex);                  // Stuff the current file index
-    sendSize = serialTransfer.txObj(data[fileIndex], sendSize, dataLen); // Stuff the current file data
+    uint8_t sendSize = serialTransfer.txObj(fileIndex);                           // Stuff the current file index
+    sendSize = serialTransfer.txObj(psramFirmware[fileIndex], sendSize, dataLen); // Stuff the current file data
 
     serialTransfer.sendData(sendSize, 1); // Send the current file index and data
     Serial.println("Sending Packet: " + String(i) + " of " + String(numPackets) + " with size: " + String(dataLen) + " bytes");
@@ -590,11 +642,14 @@ void sendFile(String filename)
 
   ws.textAll("{ \"type\": \"firmwareUpdate\", \"progress\": 100 }");
 
+  // Signal end of firmware
   address = 202;
   uint8_t sendSize = 0;
   sendSize = serialTransfer.txObj(address, sendSize); // Stuff the current file index
 
   serialTransfer.sendData(sendSize, 2); // Send the current file index and data
+
+  Serial.println("Firmware upload complete.");
 }
 
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
@@ -620,7 +675,9 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
       String newmode = doc["mode"];
       Serial.printf("Mode: %s\n", newmode.c_str());
 
-      if (newmode == "time")
+      if (newmode == "cycle")
+        mode = MODE_CYCLE;
+      else if (newmode == "time")
         mode = MODE_TIME;
       else if (newmode == "custom")
         mode = MODE_CUSTOM;
@@ -673,45 +730,45 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
 // handles uploads
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final)
 {
-  // filename = "firmware.bin";
-  String logmessage = "Client:" + request->client()->remoteIP().toString() + " " + request->url();
+  static bool installFirmware = false;
 
-  bool installFirmware = false;
-
-  if (!index)
+  if (!index) // first chunk
   {
-    Serial.println(logmessage);
-
-    logmessage = "Upload Start: " + String(filename);
-    // open the file on first call and store the file handle in the request object
-    request->_tempFile = SPIFFS.open("/" + filename, "w");
-    // Safely read the install header (check for null) and use value() instead of toString()
+    Serial.println("Upload Start: " + filename);
+    // Read install header
     const AsyncWebHeader *h = request->getHeader("install");
     installFirmware = (h && h->value() == "true");
-    Serial.println(logmessage + ", Install: " + installFirmware);
+
+    // Allocate PSRAM for the firmware file
+    if (psramFirmware)
+      free(psramFirmware);                        // free previous buffer
+    psramFirmwareSize = request->contentLength(); // total file size
+    psramFirmware = (uint8_t *)heap_caps_malloc(psramFirmwareSize, MALLOC_CAP_SPIRAM);
+    if (!psramFirmware)
+    {
+      Serial.println("Failed to allocate PSRAM buffer!");
+      return;
+    }
+
+    Serial.println("Allocated PSRAM buffer: " + String(psramFirmwareSize) + " bytes, Install: " + installFirmware);
   }
 
-  if (len)
+  if (len && psramFirmware)
   {
-    // stream the incoming chunk to the opened file
-    request->_tempFile.write(data, len);
-    logmessage = "Writing file: " + String(filename) + " index=" + String(index) + " len=" + String(len);
-    Serial.println(logmessage);
+    memcpy(psramFirmware + index, data, len);
+    Serial.println("Writing chunk: index=" + String(index) + " len=" + String(len));
   }
 
   if (final)
   {
-    logmessage = "Upload Complete: " + String(filename) + ",size: " + String(index + len);
-    // close the file handle as the upload is now done
-    request->_tempFile.close();
-    Serial.println(logmessage);
+    Serial.println("Upload Complete: " + filename + ", size=" + String(psramFirmwareSize));
     request->redirect("/");
 
     sendStatus();
 
     if (installFirmware)
     {
-      // sendFile(filename);
+      Serial.println("Installing firmware from PSRAM");
       uploadingFirmware = true;
     }
   }

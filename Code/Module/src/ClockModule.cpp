@@ -12,11 +12,11 @@ ClockModule::ClockModule(int motor)
     minuteStepper->setPosition(90);
 
     MotorControl_t hourInit;
-    hourInit.position = 135;
+    hourInit.position = motor % 2 == 0 ? 135 : 45;
     hourInit.time = 3000;
     hourInit.direction = MotorDirection_t::MOTOR_CW;
     MotorControl_t minuteInit;
-    minuteInit.position = 315;
+    minuteInit.position = motor % 2 == 0 ? 315 : 225;
     minuteInit.time = 3000;
     minuteInit.direction = MotorDirection_t::MOTOR_CW;
 
