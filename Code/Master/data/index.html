@@ -4,12 +4,13 @@
 <head>
   <title>ClockClock</title>
   <!-- <meta name="viewport" content="width=device-width, initial-scale=1"> -->
-  <!-- <link rel="icon" href="data:,"> -->
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
   <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="clockclock-cv.js"></script>
 </head>
 
 <body>
-  <h1 style="user-select: none;" onclick="this.innerText += 'Clock'">ClockClock</h1>
+  <h1 style="font-size: 4vh; user-select: none;" onclick="this.innerText += 'Clock'">ClockClock</h1>
   <!-- <h1 style="user-select: none;" onclick="hehe()">Clock<sup id="firstclock">Clock</sup></h1> -->
 
   <script>
@@ -26,7 +27,7 @@
   <canvas id="canvas"></canvas>
 
   <p>Mode:
-    <select id="mode" onchange="updateMode()">
+    <select id="mode" onchange="updateMode()" style="font-size: 2vh;">
       <option value="cycle">Cycle</option>
       <option value="time">Time</option>
       <option value="clear">Clear</option>
@@ -36,26 +37,71 @@
       <option value="wave">/-\|/-\|/</option>
       <option value="altwave">|&lt;-&gt;|&lt;-&gt;|</option>
       <option value="altwavediag">/&lt;\&gt;/&lt;\&gt;/</option>
+      <option value="radial">(&lt;--&gt;)</option>
     </select>
-    <!-- </p>
-  <p> -->
-    &nbsp;
-    Custom Text:
-    <input type="text" id="text" maxlength="4" onchange="updateMode()">
+
+    <span id="customText" style="display: none;">
+      &nbsp;
+      Custom Text:
+      <input type="text" id="text" maxlength="4" onchange="updateMode()">
+    </span>
   </p>
 
-  <p>Upload Firmware for Modules: <br>
+  <button onclick="calibrate()">Calibrate</button>
+  <button id="uploadButton" onclick="upload()">Update Module Firmware</button>
+  <button onclick="websocket.send(JSON.stringify({ 'type': 'restart' }));">Reboot Master</button>
+
+  <!-- <p>Upload Firmware for Modules: <br>
     <input type="file" id="fileInput" accept=".bin" style="padding-top: 7px; padding-bottom: 7px;">
     <button id="uploadButton" onclick="uploadFile()">Upload</button>
     <button id="sendButton" onclick="sendFirmware()" disabled style="opacity: 80%; cursor: default;">Send to
-      Modules</button>
-    &nbsp;Auto Install:
+      Modules</button> -->
+  <!-- &nbsp;Auto Install:
     <label class="switch">
       <input type="checkbox" id="autoInstall"
-        onchange="websocket.send(JSON.stringify({'type': 'slideSwitch', 'state': this.checked}));">
+      onchange="websocket.send(JSON.stringify({'type': 'slideSwitch', 'state': this.checked}));">
       <span class="slider round"></span>
     </label>
-  </p>
+  </p> -->
+
+
+
+  <div id="calibrateMenu"
+    style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: none;">
+    <div
+      style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 20px; border-radius: 0.75vh; text-align: center;">
+      <h2 id="calibrateMessage">Calibrate Hands</h2>
+      <p id="calibrateInstructions"></p>
+      <div id="cameraContainer" style="display: none; position: relative; max-width: 40vw; margin: 10px auto;">
+        <video id="cameraVideo" autoplay playsinline style="width: 100%; border-radius: 0.75vh;"></video>
+        <canvas id="cameraOverlay"
+          style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
+        <div id="cameraStatus" style="text-align: center; font-size: 12px; color: #888; margin-top: 4px;"></div>
+      </div>
+      <canvas id="calibrateCanvas"
+        style="display: none; max-width: 40vw; border-radius: 0.75vh; margin: 10px auto;"></canvas>
+      <br>
+      <button id="calibrateButton"></button>
+      <button id="cameraButton" style="display: none;" onclick="captureFromCamera()">Capture</button>
+      <button id="retakeButton" style="display: none;" onclick="retakeCapture()">Retake</button>
+      <button id="cycleCameraButton" style="display: none;" onclick="cycleCamera()">Switch Camera</button>
+      <button onclick="cancelCalibration()">Cancel</button>
+    </div>
+  </div>
+
+  <div id="uploadMenu"
+    style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: none;">
+    <div
+      style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 20px; border-radius: 0.75vh;">
+      <h2 id="uploadMessage">Upload Module Firmware</h2>
+      <p id="uploadInstructions"></p>
+      <input type="file" id="fileInput" accept=".bin" style="padding-top: 7px; padding-bottom: 7px;">
+      <br>
+      <button id="uploadButton" onclick="uploadFile()">Upload Firmware</button>
+      <button id="sendButton" onclick="sendFirmware()">Send to Modules</button>
+      <button onclick="cancelUpload()">Cancel</button>
+    </div>
+  </div>
 
   <div id="uploadStatus"
     style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: none;">
@@ -67,6 +113,7 @@
 
   <script>
     var hands = [];
+    var motors = []; // Per-hand simulated stepper (emulates the real module motion)
     var step = 19.75;
     var handVelocities = []; // Add velocity tracking for each hand
     var mouseTargets = []; // Store target angles for each hand
@@ -80,12 +127,14 @@
 
     for (let i = 0; i < 8; i++) {
       hands[i] = [];
+      motors[i] = [];
       handVelocities[i] = [];
       mouseTargets[i] = [];
       originalHands[i] = [];
       randomDirections[i] = [];
       for (let j = 0; j < 3; j++) {
         hands[i][j] = [step * (i + 1), 360 - step * (i + 1)];
+        motors[i][j] = [makeStepper(hands[i][j][0]), makeStepper(hands[i][j][1])];
         handVelocities[i][j] = [0, 0]; // Initialize velocities to 0
         mouseTargets[i][j] = [null, null]; // Initialize targets to null
         originalHands[i][j] = [step * (i + 1), 360 - step * (i + 1)]; // Store original positions
@@ -96,6 +145,12 @@
     function updateMode() {
       var mode = document.getElementById("mode").value;
       var text = document.getElementById("text").value;
+
+      if (mode == "custom") {
+        document.getElementById("customText").style.display = "inline-block";
+      } else {
+        document.getElementById("customText").style.display = "none";
+      }
 
       // if (mode === "interactive") {}
 
@@ -109,11 +164,17 @@
 
     function onLoad(event) {
       initWebSocket();
-      startPhysicsLoop();
+      startAnimationLoop();
     }
 
     function initWebSocket() {
-      var gateway = `ws://${window.location.hostname || 'clockclock.local'}/ws`;
+      var gateway = `ws://${window.location.hostname}/ws`;
+
+      if (window.location.hostname == "localhost" || window.location.hostname == "127.0.0.1" || window.location.hostname == "" || !window.location.hostname) {
+        gateway = `ws://clockclock.local/ws`; // Use port 8765 for local development
+      }
+
+      console.log(window.location.hostname + " -> " + gateway);
 
       websocket = new WebSocket(gateway);
       websocket.onopen = onOpen;
@@ -144,28 +205,36 @@
         document.getElementById("mode").value = json["mode"];
         if (json["hasFirmware"]) {
           document.getElementById("sendButton").disabled = false;
-          document.getElementById("sendButton").style.opacity = "100%";
+          document.getElementById("sendButton").style.opacity = "1";
           document.getElementById("sendButton").style.cursor = "pointer";
         } else {
           document.getElementById("sendButton").disabled = true;
-          document.getElementById("sendButton").style.opacity = "80%";
+          document.getElementById("sendButton").style.opacity = "0.5";
           document.getElementById("sendButton").style.cursor = "default";
         }
       } else if (json["type"] == "hands") {
-        hands = json["hands"];
-        // Reset velocities when receiving new data from server
+        var newHands = json["hands"];
+        // Each hand arrives as full motor control: [position, speed,
+        // acceleration, direction, time, keepRunning]. Hand it to the
+        // simulated stepper, which reproduces the real module's motion.
         for (let i = 0; i < 8; i++) {
           for (let j = 0; j < 3; j++) {
+            for (let h = 0; h < 2; h++) {
+              var c = newHands[i][j][h];
+              var ctrl = {
+                position: c[0], speed: c[1], acceleration: c[2],
+                direction: c[3], time: c[4], keepRunning: !!c[5]
+              };
+              applyMotorControl(motors[i][j][h], ctrl);
+              originalHands[i][j][h] = c[0]; // mouse-physics rest position
+            }
             handVelocities[i][j] = [0, 0];
             mouseTargets[i][j] = [null, null]; // Reset mouse targets
-            originalHands[i][j] = [hands[i][j][0], hands[i][j][1]]; // Update original positions
             randomDirections[i][j] = [Math.random() * 2 - 1, Math.random() * 2 - 1]; // New random directions
           }
         }
         mouseActive = false; // Reset mouse active state
         mouseSpeed = 0; // Reset mouse speed
-        // console.log(hands);
-        draw();
       } else if (json["type"] == "firmwareUpdate") {
         uploadStatus.style.display = 'block';
         uploadMessage.innerHTML = 'Installing Firmware...';
@@ -215,7 +284,7 @@
 
         xhr.open('POST', '/upload');
 
-        xhr.setRequestHeader('install', document.getElementById('autoInstall').checked ? 'true' : 'false');
+        // xhr.setRequestHeader('install', document.getElementById('autoInstall').checked ? 'true' : 'false');
 
         xhr.send(formData);
       } else {
@@ -234,6 +303,197 @@
       uploadMessage.innerHTML = 'Starting Firmware Update...';
       uploadProgress.innerHTML = '';
     }
+
+    function handleFile(file) {
+      const img = new Image();
+      img.onload = () => {
+        loadedImage = img;
+        corners = [];
+        processBtn.disabled = true;
+        resultsDiv.style.display = 'none';
+        controlsSection.style.display = 'none';
+        stepLog.style.display = 'none';
+        showCropUI(img);
+      };
+      img.src = URL.createObjectURL(file);
+    }
+
+    let calibrateHands = [];
+    let cameraDetector = null;
+    let cameraStream = null;
+    let cameraFacingMode = 'environment';
+    let cameraNextStep = null;
+
+    function processCalibrationResult(result, nextStep) {
+      let angles = result.angles;
+
+      let canvas = document.getElementById('calibrateCanvas');
+      let ctx = canvas.getContext('2d');
+      canvas.width = result.canvas.width;
+      canvas.height = result.canvas.height;
+      ctx.drawImage(result.canvas, 0, 0);
+      canvas.style.display = 'block';
+
+      for (let y = 0; y < 8; y++) {
+        calibrateHands[y] = [];
+        for (let x = 0; x < 3; x++) {
+          calibrateHands[y][x] = [angles[x][y][0], angles[x][y][1]];
+        }
+      }
+
+      document.getElementById('calibrateButton').style.opacity = '1';
+      document.getElementById('calibrateButton').onclick = function () { calibrate(nextStep); };
+      document.getElementById('retakeButton').style.display = 'inline-block';
+    }
+
+    function retakeCapture() {
+      document.getElementById('calibrateCanvas').style.display = 'none';
+      document.getElementById('retakeButton').style.display = 'none';
+      document.getElementById('calibrateButton').style.opacity = '0.5';
+      document.getElementById('calibrateButton').onclick = null;
+      startCamera();
+    }
+
+    function showCalibrationInput(nextStep, instructionText) {
+      document.getElementById('calibrateButton').style.opacity = '0.5';
+      document.getElementById('calibrateButton').onclick = null;
+      document.getElementById('calibrateInstructions').innerText = instructionText;
+      document.getElementById('calibrateButton').innerText = 'Use Image';
+
+      cameraNextStep = nextStep;
+      startCamera();
+    }
+
+    async function startCamera() {
+      var video = document.getElementById('cameraVideo');
+      var container = document.getElementById('cameraContainer');
+      var statusEl = document.getElementById('cameraStatus');
+      var captureBtn = document.getElementById('cameraButton');
+      var cycleBtn = document.getElementById('cycleCameraButton');
+
+      try {
+        cameraStream = await ClockClockCV.initCamera(video, { facingMode: cameraFacingMode });
+        container.style.display = 'block';
+        captureBtn.style.display = 'inline-block';
+        cycleBtn.style.display = 'inline-block';
+
+        // Set overlay canvas to native video resolution — CSS handles display scaling
+        var overlay = document.getElementById('cameraOverlay');
+        overlay.width = video.videoWidth;
+        overlay.height = video.videoHeight;
+
+        cameraDetector = ClockClockCV.createVideoDetector(video, {
+          frameRate: 8,
+          onDetection: function (data) {
+            var overlay = document.getElementById('cameraOverlay');
+            // Keep overlay in sync if video resolution changes
+            if (overlay.width !== video.videoWidth || overlay.height !== video.videoHeight) {
+              overlay.width = video.videoWidth;
+              overlay.height = video.videoHeight;
+            }
+            // Scale is 1:1 since overlay uses native video resolution
+            ClockClockCV.drawOverlay(overlay.getContext('2d'), data.result, 1, 1);
+            statusEl.textContent = data.detected
+              ? data.fps + ' FPS — Detected'
+              : data.fps + ' FPS — Point camera at ClockClock';
+          }
+        });
+        cameraDetector.start();
+      } catch (err) {
+        statusEl.textContent = 'Camera: ' + err.message;
+        console.error('Camera error:', err);
+      }
+    }
+
+    function stopCamera() {
+      if (cameraDetector) {
+        cameraDetector.stop();
+        cameraDetector = null;
+      }
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(function (t) { t.stop(); });
+        cameraStream = null;
+      }
+      document.getElementById('cameraContainer').style.display = 'none';
+      document.getElementById('cameraButton').style.display = 'none';
+      document.getElementById('cycleCameraButton').style.display = 'none';
+      document.getElementById('retakeButton').style.display = 'none';
+      document.getElementById('cameraVideo').srcObject = null;
+    }
+
+    function cycleCamera() {
+      cameraFacingMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
+      stopCamera();
+      startCamera();
+    }
+
+    function captureFromCamera() {
+      if (!cameraDetector) return;
+      var result = cameraDetector.capture();
+      if (!result || !result.corners) {
+        document.getElementById('cameraStatus').textContent = 'No ClockClock detected — try again';
+        return;
+      }
+      stopCamera();
+      processCalibrationResult(result, cameraNextStep);
+    }
+
+    function calibrate(step) {
+      switch (step) {
+        default:
+          document.getElementById('calibrateMenu').style.display = 'block';
+          document.getElementById('calibrateInstructions').innerText = 'Click the button to move the hands to an assumed position, then use the camera to capture the clock.';
+
+          document.getElementById('calibrateButton').innerText = 'Set Hands';
+          document.getElementById('calibrateButton').onclick = function () { calibrate(1); };
+
+          break;
+        case 1:
+          websocket.send(JSON.stringify({ 'type': 'calibrate', 'step': 0 }));
+          document.getElementById('calibrateCanvas').style.display = 'none';
+          showCalibrationInput(2, 'Point your camera at the clock and capture. After applying, the hands will move and you will capture another image.');
+          break;
+        case 2:
+          console.log("Calibrate Hands 1:", calibrateHands);
+          websocket.send(JSON.stringify({ 'type': 'calibrate', 'step': 1, 'hands': JSON.stringify(calibrateHands) }));
+          document.getElementById('calibrateCanvas').style.display = 'none';
+          showCalibrationInput(3, 'Capture another image of the clock hands. After applying, calibration should be complete.');
+          break;
+        case 3:
+          console.log("Calibrate Hands 2:", calibrateHands);
+          websocket.send(JSON.stringify({ 'type': 'calibrate', 'step': 2, 'hands': JSON.stringify(calibrateHands) }));
+
+          document.getElementById('calibrateButton').style.opacity = '1';
+          document.getElementById('calibrateCanvas').style.display = 'none';
+          stopCamera();
+          document.getElementById('calibrateMenu').style.display = 'none';
+      }
+    }
+
+    function cancelCalibration() {
+      document.getElementById('calibrateMenu').style.display = 'none';
+      document.getElementById('calibrateButton').style.opacity = '1';
+      document.getElementById('calibrateCanvas').style.display = 'none';
+      stopCamera();
+
+      websocket.send(JSON.stringify({ 'type': 'calibrate', 'step': 99 }));
+    }
+
+    function upload() {
+      document.getElementById('uploadMenu').style.display = 'block';
+    }
+
+    function cancelUpload() {
+      document.getElementById('uploadMenu').style.display = 'none';
+    }
+
+    window.onbeforeunload = () => {
+      cancelCalibration(); // Ensure calibration is cancelled if user navigates away
+
+      if (websocket) {
+        websocket.close();
+      }
+    };
 
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
@@ -505,13 +765,196 @@
       }
     }
 
-    function startPhysicsLoop() {
-      function physicsUpdate() {
-        updateHandsPhysics();
-        draw();
-        requestAnimationFrame(physicsUpdate);
+    // ── Stepper motor emulation ────────────────────────────────
+    // A JS port of Module/src/StepperMotor.h. Each hand is a simulated
+    // motor so the web preview reproduces the real motion: trapezoidal
+    // acceleration/deceleration for position moves, and constant-speed
+    // continuous spin when keepRunning is set. Directions: 0=CW, 1=CCW,
+    // 2=shortest. Angles are tracked directly in degrees.
+    var MOTOR_CW = 0, MOTOR_CCW = 1, MOTOR_SHORTEST = 2;
+    var MAX_SPEED = 1440;  // deg/s cap (matches firmware: 4 rev/s)
+    var MAX_ACCEL = 2000;  // deg/s^2 cap
+
+    function norm360(a) {
+      a = a % 360;
+      if (a < 0) a += 360;
+      return a;
+    }
+
+    function makeStepper(pos) {
+      return {
+        pos: norm360(pos),   // current angle (deg)
+        speed: 0,            // current angular speed (deg/s)
+        targetPos: norm360(pos),
+        targetSpeed: 0,
+        accel: 50,
+        clockwise: true,
+        continuous: false,
+        wasContinuous: false,
+        running: false
+      };
+    }
+
+    // Mirrors StepperMotor::applyMotorControl
+    function applyMotorControl(m, c) {
+      m.pos = norm360(m.pos);
+
+      // Idempotent re-command (position mode): if already moving toward this
+      // exact target, leave the in-flight profile alone. A time-based move means
+      // "reach the target in `time` ms from now", so re-issuing it restarts that
+      // clock. Animations re-send the whole grid on every update, which would
+      // otherwise reset every hand's deadline and make them all arrive together
+      // on the last send instead of on their own staggered schedules.
+      if (!c.keepRunning && m.running && !m.continuous && !m.wasContinuous) {
+        if (Math.abs(norm360(c.position) - m.targetPos) < 0.5) return;
       }
-      physicsUpdate();
+
+      if (!c.keepRunning) {
+        // ── Position mode ──
+        var target = norm360(c.position);
+        var targetSpeed = c.speed;
+        var accel = c.acceleration;
+        var cw = m.clockwise;
+
+        // Preserve speed for smooth transitions when already moving the same way
+        var preserve = false;
+        if (m.running) {
+          if (m.wasContinuous) {
+            preserve = true;
+          } else {
+            var d = target - m.pos;
+            if (cw && d > 0 && d < 180) preserve = true;
+            else if (!cw && d < 0 && d > -180) preserve = true;
+          }
+        }
+        if (!(preserve && m.speed >= 1)) m.speed = 1;
+
+        // Direction
+        if (m.wasContinuous) {
+          cw = m.clockwise;
+        } else if (!m.running || !preserve) {
+          if (c.direction === MOTOR_SHORTEST) {
+            var diff = target - m.pos;
+            while (diff > 180) diff -= 360;
+            while (diff < -180) diff += 360;
+            cw = diff > 0;
+          } else {
+            cw = c.direction !== MOTOR_CCW;
+          }
+        }
+
+        // Distance to travel in the chosen direction (0..360)
+        var dd = target - m.pos;
+        if (cw) { if (dd < 0) dd += 360; }
+        else { if (dd > 0) dd -= 360; dd = -dd; }
+        var dist = dd;
+
+        if (c.time !== 65535 && c.time > 0) {
+          // Time-constrained triangular profile
+          var sec = c.time / 1000;
+          targetSpeed = (2 * dist) / sec;
+          accel = (2 * targetSpeed) / sec;
+          if (targetSpeed > MAX_SPEED) targetSpeed = MAX_SPEED;
+          if (accel > MAX_ACCEL) accel = MAX_ACCEL;
+        } else if (dist > 180) {
+          // Longer paths speed up proportionally
+          var mult = dist / 180;
+          targetSpeed *= mult;
+          accel *= mult;
+          if (targetSpeed > MAX_SPEED) targetSpeed = MAX_SPEED;
+          if (accel > MAX_ACCEL) accel = MAX_ACCEL;
+        }
+
+        m.targetPos = target;
+        m.targetSpeed = targetSpeed;
+        m.accel = accel > 0 ? accel : 1;
+        m.clockwise = cw;
+        m.continuous = false;
+        m.wasContinuous = false;
+        m.running = true;
+      } else {
+        // ── Continuous spin mode ──
+        if (!m.running || m.speed < 1) m.speed = 1;
+        m.targetSpeed = c.speed;
+        m.accel = c.acceleration > 0 ? c.acceleration : 1;
+        m.clockwise = c.direction !== MOTOR_CCW;
+        m.continuous = true;
+        m.wasContinuous = true;
+        m.running = true;
+      }
+    }
+
+    // Mirrors StepperMotor::update — advance one motor by dt seconds
+    function updateStepper(m, dt) {
+      if (!m.running) return;
+      var dir = m.clockwise ? 1 : -1;
+
+      if (m.continuous) {
+        if (m.speed < m.targetSpeed) m.speed = Math.min(m.targetSpeed, m.speed + m.accel * dt);
+        else if (m.speed > m.targetSpeed) m.speed = Math.max(m.targetSpeed, m.speed - m.accel * dt);
+        m.pos = norm360(m.pos + dir * m.speed * dt);
+        return;
+      }
+
+      // Position mode: distance remaining along travel direction
+      var diff = m.targetPos - m.pos;
+      if (m.clockwise) { if (diff < 0) diff += 360; }
+      else { if (diff > 0) diff -= 360; diff = -diff; }
+      var dist = diff;
+
+      // Arrived?
+      if (dist <= Math.max(0.05, m.speed * dt)) {
+        m.pos = norm360(m.targetPos);
+        m.speed = 0;
+        m.running = false;
+        return;
+      }
+
+      // Trapezoidal profile: decelerate when within stopping distance
+      var decelDist = (m.speed * m.speed) / (2 * m.accel);
+      if (dist <= decelDist) {
+        m.speed = Math.max(0, m.speed - m.accel * dt);
+      } else if (m.speed < m.targetSpeed) {
+        m.speed = Math.min(m.targetSpeed, m.speed + m.accel * dt);
+      }
+
+      m.pos = norm360(m.pos + dir * m.speed * dt);
+    }
+
+    var lastFrameTime = null;
+
+    function startAnimationLoop() {
+      function frame(timestamp) {
+        if (lastFrameTime === null) lastFrameTime = timestamp;
+        var dt = (timestamp - lastFrameTime) / 1000;
+        lastFrameTime = timestamp;
+        if (dt > 0.1) dt = 0.1; // clamp big gaps (e.g. backgrounded tab)
+
+        if (mouseActive) {
+          // Interactive mouse repulsion drives the hands directly; keep the
+          // motors parked at the displayed angle so there's no jump on release.
+          updateHandsPhysics();
+          for (let x = 0; x < 8; x++)
+            for (let y = 0; y < 3; y++)
+              for (let h = 0; h < 2; h++) {
+                motors[x][y][h].pos = hands[x][y][h];
+                motors[x][y][h].running = false;
+                motors[x][y][h].continuous = false;
+              }
+        } else {
+          // Step every simulated motor, then copy its angle to the render array
+          for (let x = 0; x < 8; x++)
+            for (let y = 0; y < 3; y++)
+              for (let h = 0; h < 2; h++) {
+                updateStepper(motors[x][y][h], dt);
+                hands[x][y][h] = motors[x][y][h].pos;
+              }
+        }
+
+        draw();
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
     }
   </script>
 </body>

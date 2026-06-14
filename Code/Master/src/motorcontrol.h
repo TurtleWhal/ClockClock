@@ -18,7 +18,7 @@ struct MotorControl_t
     MotorDirection_t direction = MotorDirection_t::MOTOR_SHORTEST; // Direction of rotation
     uint16_t time = UINT16_MAX;                                    // Time in milliseconds to reach the target position
     bool keepRunning = false;                                      // Whether the motor should keep running after reaching the target position
-    bool optimize = true;                                          // Whether to optimize which hand moves to which position to minimize distance. Must match on both hands and `keepRunning` must be `false`
+    bool optimize = true;                                          // Whether to optimize which hand moves to which position to minimize distance. Must match on both hands to take effect
 };
 
 #endif // MOTORCONTROL_H

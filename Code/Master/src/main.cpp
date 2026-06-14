@@ -42,6 +42,9 @@ void sendStatus();
 // Holds the buffer for drawing
 MotorControl_t buffer[WIDTH][HEIGHT][2];
 
+int calibrateHands0[WIDTH][HEIGHT][2];
+int calibrateHands1[WIDTH][HEIGHT][2];
+
 void clearBuffer(MotorControl_t fill = MotorControl_t())
 {
   for (int i = 0; i < WIDTH; i++)
@@ -64,9 +67,10 @@ enum
   MODE_WAVE,
   MODE_ALT_WAVE,
   MODE_ALT_WAVE_DIAG,
+  MODE_RADIAL,
 };
 
-int mode = MODE_CYCLE;
+volatile int mode = MODE_CYCLE;
 String customText = "";
 
 uint8_t moduleMap[8][3][2] = {
@@ -83,9 +87,12 @@ uint8_t moduleMap[8][3][2] = {
 Timezone myTZ;
 
 bool uploadingFirmware = false;
+bool calibrating = false;
 
 void setup()
 {
+  setCpuFrequencyMhz(240);
+
   // USB Serial
   Serial.begin(115200);
   Serial.print("Helooo. I am the Master. I am V");
@@ -113,12 +120,24 @@ void setup()
 
   // Initialize WiFi
   wm.setDarkMode(true);
+  wm.setWiFiAutoReconnect(true);
+  wm.setConfigPortalBlocking(true);
   wm.autoConnect("ClockClock");
+
+  // Keep the connection alive: persist credentials and let the Arduino
+  // core auto-reconnect. A watchdog in loop() forces reconnects if the
+  // core gives up (it stops retrying after repeated failures).
+  WiFi.persistent(true);
+  WiFi.setAutoReconnect(true);
+  WiFi.setSleep(false);
+
+  esp_wifi_set_ps(WIFI_PS_NONE);
 
   ArduinoOTA.setHostname("clockclock");
   ArduinoOTA.begin();
 
-  // MDNS.begin("clockclock");
+  MDNS.begin("clockclock");
+  MDNS.addService("http", "tcp", 80);
 
   waitForSync();
 
@@ -141,6 +160,9 @@ void setup()
 
   server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/favicon.ico", "image/x-icon"); });
+
+  server.on("/clockclock-cv.js", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/clockclock-cv.js", "application/javascript"); });
 
   // run handleUpload function when any file is uploaded
   server.on("/upload", HTTP_POST, [](AsyncWebServerRequest *request)
@@ -190,9 +212,10 @@ void setup()
   serialTransfer.begin(Serial1);
 }
 
-bool modeChanged = true;
+volatile bool modeChanged = true;
 int lastSecond = -1;
 int lastMinute = -1;
+bool wasConnected = true;
 
 void drawTime()
 {
@@ -208,7 +231,7 @@ void drawTime()
 
 void wave()
 {
-  for (int i = WIDTH; i >= 0; i--)
+  for (int i = WIDTH - 1; i >= 0; i--)
   {
     for (int j = 0; j < HEIGHT; j++)
     {
@@ -226,7 +249,7 @@ void wave()
 
   delay(4000);
 
-  for (int i = WIDTH; i >= 0; i--)
+  for (int i = WIDTH - 1; i >= 0; i--)
   {
     for (int j = 0; j < HEIGHT; j++)
     {
@@ -248,7 +271,7 @@ void wave()
 
 void altwave()
 {
-  for (int i = WIDTH; i >= 0; i--)
+  for (int i = WIDTH - 1; i >= 0; i--)
   {
     for (int j = 0; j < HEIGHT; j++)
     {
@@ -266,7 +289,7 @@ void altwave()
 
   delay(4000);
 
-  for (int i = WIDTH; i >= 0; i--)
+  for (int i = WIDTH - 1; i >= 0; i--)
   {
     for (int j = 0; j < HEIGHT; j++)
     {
@@ -288,7 +311,7 @@ void altwave()
 
 void altwavediag()
 {
-  for (int i = WIDTH; i >= 0; i--)
+  for (int i = WIDTH - 1; i >= 0; i--)
   {
     for (int j = 0; j < HEIGHT; j++)
     {
@@ -306,7 +329,7 @@ void altwavediag()
   writeBuffer();
   delay(4000);
 
-  for (int i = WIDTH; i >= 0; i--)
+  for (int i = WIDTH - 1; i >= 0; i--)
   {
     for (int j = 0; j < HEIGHT; j++)
     {
@@ -323,6 +346,43 @@ void altwavediag()
     writeBuffer();
     delay(400);
   }
+  writeBuffer();
+}
+
+void radialwave()
+{
+  for (int i = WIDTH - 1; i >= 0; i--)
+  {
+    for (int j = 0; j < HEIGHT; j++)
+    {
+      double baseAngle = atan2(j - (HEIGHT / 2.0) + 0.5, i - (WIDTH / 2.0) + 0.5) * (180.0 / PI) + 180;
+      double dist = sqrt(pow(i - (WIDTH / 2.0) + 0.5, 2) + pow(j - (HEIGHT / 2.0) + 0.5, 2));
+      buffer[i][j][0].position = baseAngle - 22 * dist;
+      buffer[i][j][1].position = baseAngle + 22 * dist;
+      buffer[i][j][0].time = 4000;
+      buffer[i][j][1].time = 4000;
+      buffer[i][j][0].optimize = false;
+      buffer[i][j][1].optimize = false;
+    }
+  }
+
+  writeBuffer();
+
+  delay(4000);
+
+  for (int i = WIDTH - 1; i >= 0; i--)
+  {
+    for (int j = 0; j < HEIGHT; j++)
+    {
+      buffer[i][j][0].speed = 40;
+      buffer[i][j][1].speed = 40;
+      buffer[i][j][0].keepRunning = true;
+      buffer[i][j][1].keepRunning = true;
+      buffer[i][j][0].direction = MotorDirection_t::MOTOR_CCW;
+      buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
+    }
+  }
+
   writeBuffer();
 }
 
@@ -349,120 +409,203 @@ void loop()
     modeChanged = true;
   }
 
-  switch (mode)
+  if (!calibrating)
   {
-  case MODE_CYCLE:
-    if (lastSecond != myTZ.second() || modeChanged)
+    // Consume the change flag up front. A blocking animation below can run for
+    // many seconds; if a new mode arrives during it, the WebSocket task sets
+    // this flag again and the next iteration handles it. Clearing at the end
+    // instead would discard a change that landed mid-animation, so the new
+    // mode would never draw ("nothing happens").
+    bool justChanged = modeChanged;
+    modeChanged = false;
+
+    switch (mode)
     {
-      if (lastMinute != myTZ.minute() || modeChanged)
+    case MODE_CYCLE:
+      if (lastSecond != myTZ.second() || justChanged)
       {
-        clearBuffer({.position = 135, .time = 10000});
+        if (lastMinute != myTZ.minute() || justChanged)
+        {
+          clearBuffer({.position = 135, .time = 10000, .optimize = true});
+
+          drawTime();
+
+          writeBuffer();
+
+          lastMinute = myTZ.minute();
+        }
+        else if (lastSecond == 20 && myTZ.hour() >= 6 && myTZ.hour() < 22)
+        {
+          // randomly select an animation
+          int animation = random(0, 5);
+          switch (animation)
+          {
+          case 0:
+            wave();
+            break;
+          case 1:
+            altwave();
+            break;
+          case 2:
+            altwavediag();
+            break;
+          case 3:
+            radialwave();
+            break;
+          case 4:
+            for (int i = WIDTH - 1; i >= 0; i--)
+            {
+              for (int j = 0; j < HEIGHT; j++)
+              {
+                buffer[i][j][0].speed = 39;
+                buffer[i][j][1].speed = 39;
+                buffer[i][j][0].keepRunning = true;
+                buffer[i][j][1].keepRunning = true;
+                buffer[i][j][0].direction = MotorDirection_t::MOTOR_CW;
+                buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
+              }
+            }
+            writeBuffer();
+            break;
+          }
+        }
+
+        lastSecond = myTZ.second();
+      }
+      break;
+    case MODE_TIME:
+      if (lastMinute != myTZ.minute() || justChanged)
+      {
+        clearBuffer({.position = 135, .time = 5000});
 
         drawTime();
 
         writeBuffer();
-
         lastMinute = myTZ.minute();
       }
-      else if (lastSecond == 20)
+      break;
+
+    case MODE_CUSTOM:
+      if (justChanged)
       {
-        // randomly select an animation
-        int animation = random(0, 3);
-        switch (animation)
-        {
-        case 0:
-          wave();
-          break;
-        case 1:
-          altwave();
-          break;
-        case 2:
-          altwavediag();
-          break;
-        }
+        clearBuffer({.position = 135, .time = 2000});
+
+        for (int i = 0; i < min((int)customText.length(), 4); i++)
+          drawChar(customText.charAt(i), (i * 2) + (4 - customText.length()), 0);
+
+        writeBuffer();
       }
+      break;
 
-      lastSecond = myTZ.second();
-    }
-    break;
-  case MODE_TIME:
-    if (lastMinute != myTZ.minute() || modeChanged)
-    {
-      clearBuffer({.position = 135, .time = 5000});
-
-      drawTime();
-
-      writeBuffer();
-      lastMinute = myTZ.minute();
-    }
-    break;
-
-  case MODE_CUSTOM:
-    if (modeChanged)
-    {
-      clearBuffer({.position = 135, .time = 2000});
-
-      for (int i = 0; i < min((int)customText.length(), 4); i++)
-        drawChar(customText.charAt(i), (i * 2) + (4 - customText.length()), 0);
-
-      writeBuffer();
-    }
-    break;
-
-  case MODE_CLEAR:
-    if (modeChanged)
-    {
-      clearBuffer({.position = 90, .time = 1000});
-
-      writeBuffer();
-    }
-    break;
-
-  case MODE_DIAGONAL:
-    if (modeChanged)
-    {
-      clearBuffer({.time = 5000, .optimize = false});
-
-      for (int i = 0; i < WIDTH; i++)
+    case MODE_CLEAR:
+      if (justChanged)
       {
-        for (int j = 0; j < HEIGHT; j++)
-        {
-          buffer[i][j][0].position = 135;
-          buffer[i][j][1].position = 315;
-        }
+        clearBuffer({.position = 90, .time = 1000});
+
+        writeBuffer();
       }
+      break;
 
-      writeBuffer();
-    }
-    break;
+    case MODE_DIAGONAL:
+      if (justChanged)
+      {
+        clearBuffer({.time = 5000, .optimize = false});
 
-  case MODE_WAVE:
-    if (modeChanged)
-    {
-      wave();
-    }
-    break;
+        for (int i = 0; i < WIDTH; i++)
+        {
+          for (int j = 0; j < HEIGHT; j++)
+          {
+            buffer[i][j][0].position = 135;
+            buffer[i][j][1].position = 315;
+          }
+        }
 
-  case MODE_ALT_WAVE:
-    if (modeChanged)
-    {
-      altwave();
+        writeBuffer();
+      }
+      break;
+
+    case MODE_WAVE:
+      if (justChanged)
+      {
+        wave();
+      }
+      break;
+
+    case MODE_ALT_WAVE:
+      if (justChanged)
+      {
+        altwave();
+      }
+      break;
+    case MODE_ALT_WAVE_DIAG:
+      if (justChanged)
+      {
+        altwavediag();
+      }
+      break;
+    case MODE_RADIAL:
+      if (justChanged)
+      {
+        radialwave();
+      }
+      break;
     }
-    break;
-  case MODE_ALT_WAVE_DIAG:
-    if (modeChanged)
-    {
-      altwavediag();
-    }
-    break;
   }
-
-  modeChanged = false;
 
   ArduinoOTA.handle();
   events(); // ezTime event handler to keep time updated
 
-  delay(100);
+  // WiFi watchdog: the Arduino core auto-reconnect eventually stops trying
+  // after repeated failures, leaving the device offline forever. Poll the
+  // link and force a reconnect if it has been down for a few seconds.
+  static unsigned long lastWiFiCheck = 0;
+  static unsigned long downSince = 0;
+  bool connected = WiFi.status() == WL_CONNECTED;
+
+  if (millis() - lastWiFiCheck >= 5000)
+  {
+    lastWiFiCheck = millis();
+
+    if (!connected)
+    {
+      if (downSince == 0)
+      {
+        downSince = millis();
+      }
+      Serial.println("WiFi down, attempting reconnect");
+      WiFi.disconnect();
+      WiFi.reconnect();
+
+      // If reconnect keeps failing for a long time, fully re-init the radio.
+      if (millis() - downSince >= 60000)
+      {
+        Serial.println("WiFi still down after 60s, reinitializing");
+        WiFi.mode(WIFI_OFF);
+        delay(100);
+        WiFi.mode(WIFI_STA);
+        WiFi.begin();
+        downSince = millis();
+      }
+    }
+    else
+    {
+      downSince = 0;
+    }
+  }
+
+  // Re-register mDNS after WiFi reconnects
+  if (connected && !wasConnected)
+  {
+    Serial.println("WiFi reconnected, re-registering mDNS");
+    // The core can re-enable modem sleep on reconnect, which silently
+    // breaks mDNS multicast reception. Re-assert sleep-off every time.
+    WiFi.setSleep(false);
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    MDNS.end();
+    MDNS.begin("clockclock");
+    MDNS.addService("http", "tcp", 80);
+  }
+  wasConnected = connected;
 }
 
 void drawChar(char ch, int x, int y)
@@ -561,6 +704,9 @@ void sendStatus()
   case MODE_ALT_WAVE_DIAG:
     modeName = "altwavediag";
     break;
+  case MODE_RADIAL:
+    modeName = "radial";
+    break;
   }
 
   // Check if firmware exists in PSRAM
@@ -570,7 +716,10 @@ void sendStatus()
   String jsonString = "{ \"type\": \"status\", \"mode\": \"" + modeName + "\", \"hasFirmware\": " + (hasFirmware ? "true" : "false") + " }";
   ws.textAll(jsonString);
 
-  // Send buffer positions to webpage
+  // Send buffer to webpage. Each hand is sent as the full motor control so
+  // the page can emulate the real stepper motion (trapezoidal moves + spin):
+  //   [position, speed, acceleration, direction, time, keepRunning]
+  // direction: 0=CW, 1=CCW, 2=shortest. keepRunning: 0/1.
   jsonString = "{ \"type\": \"hands\", \"hands\": [";
   for (int i = 0; i < 8; i++)
   {
@@ -578,7 +727,15 @@ void sendStatus()
     for (int j = 0; j < 3; j++)
     {
       jsonString += "[";
-      jsonString += String(buffer[i][j][0].position) + "," + String(buffer[i][j][1].position);
+      for (int h = 0; h < 2; h++)
+      {
+        const MotorControl_t &m = buffer[i][j][h];
+        jsonString += "[" + String(m.position) + "," + String(m.speed) + "," +
+                      String(m.acceleration) + "," + String((int)m.direction) + "," +
+                      String(m.time) + "," + String(m.keepRunning ? 1 : 0) + "]";
+        if (h < 1)
+          jsonString += ",";
+      }
       jsonString += "]";
       if (j < 2)
         jsonString += ",";
@@ -691,6 +848,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         mode = MODE_ALT_WAVE;
       else if (newmode == "altwavediag")
         mode = MODE_ALT_WAVE_DIAG;
+      else if (newmode == "radial")
+        mode = MODE_RADIAL;
 
       customText = doc["custom"].as<String>();
 
@@ -702,6 +861,199 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
     {
       Serial.println("Installing firmware on modules");
       uploadingFirmware = true;
+    }
+    else if (type == "reboot")
+    {
+      Serial.println("Rebooting modules");
+      ESP.restart();
+    }
+    else if (type == "calibrate")
+    {
+      int step = doc["step"];
+
+      switch (step)
+      {
+      case 0:
+        Serial.println("Calibrating modules");
+
+        calibrating = true;
+
+        clearBuffer({.time = 1000, .optimize = false});
+
+        for (int i = 0; i < WIDTH; i++)
+        {
+          for (int j = 0; j < HEIGHT; j++)
+          {
+            buffer[i][j][0].position = 0;
+            buffer[i][j][1].position = 90;
+          }
+        }
+        writeBuffer();
+        break;
+      case 1:
+      {
+        // Accept either a JSON array or a JSON string containing the array
+        DynamicJsonDocument handsDoc(4096);
+        JsonArray hands;
+
+        if (doc["hands"].is<JsonArray>())
+        {
+          hands = doc["hands"].as<JsonArray>();
+        }
+        else
+        {
+          String handsStr = doc["hands"].as<String>();
+          DeserializationError err = deserializeJson(handsDoc, handsStr);
+          if (err)
+          {
+            Serial.println("Failed to parse hands JSON");
+            return;
+          }
+          hands = handsDoc.as<JsonArray>();
+        }
+
+        int i = 0;
+        for (JsonArray x : hands)
+        {
+          int j = 0;
+          for (JsonArray y : x)
+          {
+            calibrateHands0[i][j][0] = y[0];
+            calibrateHands0[i][j][1] = y[1];
+            j++;
+          }
+          i++;
+        }
+
+        for (int x = 0; x < WIDTH; x++)
+        {
+          for (int y = 0; y < HEIGHT; y++)
+          {
+            buffer[x][y][0].position += 180;
+            buffer[x][y][0].time = 1000;
+            buffer[x][y][1].time = 1000;
+            buffer[x][y][0].optimize = false;
+            buffer[x][y][1].optimize = false;
+          }
+        }
+
+        writeBuffer();
+        break;
+      }
+      case 2:
+      {
+        // Accept either a JSON array or a JSON string containing the array
+        DynamicJsonDocument handsDoc(4096);
+        JsonArray hands;
+
+        if (doc["hands"].is<JsonArray>())
+        {
+          hands = doc["hands"].as<JsonArray>();
+        }
+        else
+        {
+          String handsStr = doc["hands"].as<String>();
+          DeserializationError err = deserializeJson(handsDoc, handsStr);
+          if (err)
+          {
+            Serial.println("Failed to parse hands JSON");
+            return;
+          }
+          hands = handsDoc.as<JsonArray>();
+        }
+
+        int i = 0;
+        for (JsonArray x : hands)
+        {
+          int j = 0;
+          for (JsonArray y : x)
+          {
+            calibrateHands1[i][j][0] = y[0];
+            calibrateHands1[i][j][1] = y[1];
+            j++;
+          }
+          i++;
+        }
+
+        int currentHands[WIDTH][HEIGHT][2];
+        for (int x = 0; x < WIDTH; x++)
+        {
+          for (int y = 0; y < HEIGHT; y++)
+          {
+            currentHands[x][y][0] = calibrateHands1[x][y][0];
+            currentHands[x][y][1] = calibrateHands1[x][y][1];
+          }
+        }
+
+        for (int x = 0; x < WIDTH; x++)
+        {
+          for (int y = 0; y < HEIGHT; y++)
+          {
+            // Determine which camera hand in step 1 is the physical hand that moved (+180°).
+            // The camera may reorder hands between captures, so we check all 4 pairings
+            // and find which step1 hand is ~180° away from any step0 hand.
+
+            // Angular difference helper (accounts for wraparound)
+            auto angDiff = [](int a, int b) -> int {
+              int d = abs(a - b);
+              return d > 180 ? 360 - d : d;
+            };
+
+            // How close is each step1 hand to being 180° from any step0 hand?
+            int err0 = min(abs(angDiff(currentHands[x][y][0], calibrateHands0[x][y][0]) - 180),
+                           abs(angDiff(currentHands[x][y][0], calibrateHands0[x][y][1]) - 180));
+            int err1 = min(abs(angDiff(currentHands[x][y][1], calibrateHands0[x][y][0]) - 180),
+                           abs(angDiff(currentHands[x][y][1], calibrateHands0[x][y][1]) - 180));
+
+            if (err1 < err0)
+            {
+              // Camera hand 1 is closer to a 180° change — it's the physical hand that moved (hand 0)
+              // Swap so currentHands[0] = moved hand, currentHands[1] = stayed hand
+              int temp0 = currentHands[x][y][0];
+              currentHands[x][y][0] = currentHands[x][y][1];
+              currentHands[x][y][1] = temp0;
+            }
+          }
+        }
+
+        for (int x = 0; x < WIDTH; x++)
+        {
+          for (int y = 0; y < HEIGHT; y++)
+          {
+            // offset = commanded_position - detected_angle
+            // corrected_command = target + offset
+            // target = 180° in camera coords (0°=12 o'clock) = 90° in motor coords = straight down
+            buffer[x][y][0].position = buffer[x][y][0].position + 180 - currentHands[x][y][0];
+            buffer[x][y][1].position = buffer[x][y][1].position + 180 - currentHands[x][y][1];
+            buffer[x][y][0].time = 1000;
+            buffer[x][y][1].time = 1000;
+            buffer[x][y][0].optimize = false;
+            buffer[x][y][1].optimize = false;
+          }
+        }
+
+        writeBuffer();
+
+        delay(1200);
+
+        // Signal end of firmware
+        uint8_t address = 220;
+        uint8_t sendSize = 0;
+        sendSize = serialTransfer.txObj(address, sendSize); // Stuff the current file index
+
+        serialTransfer.sendData(sendSize);
+
+        delay(500);
+
+        calibrating = false;
+        modeChanged = true;
+        break;
+      }
+      case 99:
+        calibrating = false;
+        modeChanged = true;
+        break;
+      }
     }
   }
 }

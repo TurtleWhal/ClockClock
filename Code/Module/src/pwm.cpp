@@ -80,6 +80,14 @@ void PWMTask(void *pvParameters)
 
 void initPWM()
 {
+    // The PWM busy loop must own a core by itself: any preemption stretches the
+    // PWM period and makes the motors whine/scratch. Core 0 hosts the esp_timer
+    // stepping task (~80 kHz of callbacks while moving), so PWM lives on core 1,
+    // and the serial loop is moved off core 1 to core 0 (see Module main.cpp).
+    //
+    // This loop never yields, so it starves core 1's idle task; setup()
+    // reconfigures the Task WDT to stop watching idle tasks, or this triggers a
+    // watchdog panic. (INT_WDT and esp_timer stepping are unaffected.)
     xTaskCreatePinnedToCore(
         PWMTask,
         "PWMTask",
@@ -87,7 +95,7 @@ void initPWM()
         NULL,
         1,
         NULL,
-        1); // Run on core 0
+        1); // core 1 — alone, away from serial and esp_timer stepping (both core 0)
 }
 
 void setPWMDuty(uint8_t pin, uint16_t duty)

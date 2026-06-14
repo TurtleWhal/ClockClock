@@ -245,6 +245,26 @@ public:
 
     void applyMotorControl(const MotorControl_t &control)
     {
+        // Idempotent re-command (position mode): if we're already moving toward
+        // this exact target, leave the in-flight motion profile untouched. A
+        // time-based move means "reach the target in `time` ms from now", so
+        // re-issuing it restarts that clock. Animations re-send the whole grid
+        // on every writeBuffer(), which would otherwise reset every hand's
+        // deadline each send and make them all arrive together on the last
+        // send instead of on their own staggered schedules. Must run before
+        // esp_timer_stop() so a skipped command leaves the timer running.
+        if (control.keepRunning == false && isRunning && !continuous && !wasContinuous)
+        {
+            float reqTarget = control.position * MICRO_STEPS_PER_DEGREE;
+            while (reqTarget >= MICRO_STEPS_PER_REVOLUTION)
+                reqTarget -= MICRO_STEPS_PER_REVOLUTION;
+            while (reqTarget < 0)
+                reqTarget += MICRO_STEPS_PER_REVOLUTION;
+
+            if (fabsf(targetPosition - reqTarget) < 1.0f)
+                return;
+        }
+
         // Stop the timer to prevent race conditions during state update
         esp_timer_stop(timer);
 

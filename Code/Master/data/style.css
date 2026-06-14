@@ -5,6 +5,8 @@ html {
   display: inline-block;
   margin: 0px auto;
   text-align: center;
+
+  font-size: 2vh;
 }
 
 canvas {
@@ -14,24 +16,16 @@ canvas {
   border-radius: 4px;
 }
 
-button {
+button, input {
   color: white;
   background-color: #333;
-  padding: 10px 20px;
-  border-radius: 5px;
+  padding: 0.5rem 1rem;
+  border-radius: 0.75vh;
   border: none;
-  font-size: 16px;
   cursor: pointer;
-}
 
-input {
-  color: white;
-  background-color: #333;
-  padding: 10px 20px;
-  border-radius: 5px;
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
+  font-size: 2vh;
+  margin-bottom: 0.25rem;
 }
 
 .switch {
