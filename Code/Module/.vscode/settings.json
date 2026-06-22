@@ -3,5 +3,10 @@
         "*.embeddedhtml": "html",
         "cmath": "cpp"
     },
-    "idf.pythonInstallPath": "/usr/local/bin/python"
+    "idf.pythonInstallPath": "/usr/local/bin/python",
+    "clangd.arguments": [
+        "--header-insertion=never",
+        "--compile-commands-dir=/Users/garrett/Documents/GitHub/ClockClock/Code/Module/.cache/clangd",
+        "--query-driver=/Users/garrett/.platformio/packages/toolchain-*/bin/*,/Users/garrett/.platformio/packages/tool-*/bin/*"
+    ]
 }

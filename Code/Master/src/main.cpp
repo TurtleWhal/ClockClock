@@ -21,7 +21,9 @@ SerialTransfer serialTransfer;
 
 void writeBuffer();
 void drawChar(char ch, int x, int y);
-void drawTime();
+void drawTime(int hour, int minute);
+void drawTimeMove(int hour, int minute, uint16_t timeMs);
+void upcomingTime(int &hour12, int &minute);
 void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
              void *arg, uint8_t *data, size_t len);
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
@@ -38,6 +40,13 @@ void sendStatus();
 #define MODULES CLOCKS / 4
 
 #define CLEAR_DELAY 5000
+
+// In time/cycle modes the hands start moving this many seconds before the
+// minute flips, so they ARRIVE on the new time exactly at the flip (move
+// duration == lead time). Must be < 60, and for cycle leave room for the :20
+// animation to finish first.
+#define CYCLE_LEAD 10
+#define TIME_LEAD 5
 
 // Holds the buffer for drawing
 MotorControl_t buffer[WIDTH][HEIGHT][2];
@@ -68,6 +77,7 @@ enum
   MODE_ALT_WAVE,
   MODE_ALT_WAVE_DIAG,
   MODE_RADIAL,
+  MODE_TEST,
 };
 
 volatile int mode = MODE_CYCLE;
@@ -214,19 +224,38 @@ void setup()
 
 volatile bool modeChanged = true;
 int lastSecond = -1;
-int lastMinute = -1;
+int lastDrawnMinute = -1; // minute value the hands are currently showing/targeting
 bool wasConnected = true;
 
-void drawTime()
+void drawTime(int hour, int minute)
 {
-  int hour = myTZ.hourFormat12();
-  int minute = myTZ.minute();
-  int second = myTZ.second();
-
   drawChar(48 + hour / 10 % 10, 0, 0);
   drawChar(48 + hour % 10, 2, 0);
   drawChar(48 + minute / 10 % 10, 4, 0);
   drawChar(48 + minute % 10, 6, 0);
+}
+
+// Draw hour:minute and ship it as a single move that takes timeMs to complete.
+void drawTimeMove(int hour, int minute, uint16_t timeMs)
+{
+  clearBuffer({.position = 135, .time = timeMs, .optimize = true});
+  drawTime(hour, minute);
+  writeBuffer();
+}
+
+// The hour (1-12) and minute that will be showing at the next minute boundary.
+void upcomingTime(int &hour12, int &minute)
+{
+  minute = (myTZ.minute() + 1) % 60;
+  if (minute != 0)
+  {
+    hour12 = myTZ.hourFormat12();
+  }
+  else
+  {
+    int h12 = (myTZ.hour() + 1) % 24 % 12;
+    hour12 = (h12 == 0) ? 12 : h12;
+  }
 }
 
 void wave()
@@ -422,68 +451,107 @@ void loop()
     switch (mode)
     {
     case MODE_CYCLE:
-      if (lastSecond != myTZ.second() || justChanged)
+    {
+      int second = myTZ.second();
+      int minute = myTZ.minute();
+
+      // Time display: get the hands to LAND on the new minute exactly at the
+      // flip. Below the lead window we show the current minute; inside it we
+      // move toward the upcoming minute, taking exactly the time left until the
+      // boundary so they arrive as it flips.
+      if (justChanged)
       {
-        if (lastMinute != myTZ.minute() || justChanged)
+        drawTimeMove(myTZ.hourFormat12(), minute, CYCLE_LEAD * 1000);
+        lastDrawnMinute = minute;
+      }
+      else if (second < 60 - CYCLE_LEAD)
+      {
+        if (lastDrawnMinute != minute) // catch-up (e.g. window was missed)
+          drawTimeMove(myTZ.hourFormat12(), minute, CYCLE_LEAD * 1000), lastDrawnMinute = minute;
+      }
+      else // inside the lead window
+      {
+        int upcomingMinute = (minute + 1) % 60;
+        if (lastDrawnMinute != upcomingMinute)
         {
-          clearBuffer({.position = 135, .time = 10000, .optimize = true});
-
-          drawTime();
-
-          writeBuffer();
-
-          lastMinute = myTZ.minute();
+          int upHour, upMin;
+          upcomingTime(upHour, upMin);
+          drawTimeMove(upHour, upMin, (60 - second) * 1000);
+          lastDrawnMinute = upcomingMinute;
         }
-        else if (lastSecond == 20 && myTZ.hour() >= 6 && myTZ.hour() < 22)
+      }
+
+      // Play a random animation once at :20 (independent of the time display).
+      if (!justChanged && second == 15 && lastSecond != 15 && myTZ.hour() >= 6 && myTZ.hour() < 22)
+      {
+        int animation = random(0, 5);
+        switch (animation)
         {
-          // randomly select an animation
-          int animation = random(0, 5);
-          switch (animation)
+        case 0:
+          wave();
+          break;
+        case 1:
+          altwave();
+          break;
+        case 2:
+          altwavediag();
+          break;
+        case 3:
+          radialwave();
+          break;
+        case 4:
+          for (int i = WIDTH - 1; i >= 0; i--)
           {
-          case 0:
-            wave();
-            break;
-          case 1:
-            altwave();
-            break;
-          case 2:
-            altwavediag();
-            break;
-          case 3:
-            radialwave();
-            break;
-          case 4:
-            for (int i = WIDTH - 1; i >= 0; i--)
+            for (int j = 0; j < HEIGHT; j++)
             {
-              for (int j = 0; j < HEIGHT; j++)
-              {
-                buffer[i][j][0].speed = 39;
-                buffer[i][j][1].speed = 39;
-                buffer[i][j][0].keepRunning = true;
-                buffer[i][j][1].keepRunning = true;
-                buffer[i][j][0].direction = MotorDirection_t::MOTOR_CW;
-                buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
-              }
+              buffer[i][j][0].speed = 39;
+              buffer[i][j][1].speed = 39;
+              buffer[i][j][0].keepRunning = true;
+              buffer[i][j][1].keepRunning = true;
+              buffer[i][j][0].direction = MotorDirection_t::MOTOR_CW;
+              buffer[i][j][1].direction = MotorDirection_t::MOTOR_CW;
             }
-            writeBuffer();
-            break;
           }
+          writeBuffer();
+          break;
         }
-
-        lastSecond = myTZ.second();
+        // Leave the hands running the animation; lastDrawnMinute stays at the
+        // current minute so nothing redraws the time. The hands keep animating
+        // until the lead window (CYCLE_LEAD before the flip), where the move to
+        // the upcoming minute takes over and lands on the new time.
       }
+
+      lastSecond = second;
       break;
+    }
     case MODE_TIME:
-      if (lastMinute != myTZ.minute() || justChanged)
+    {
+      int second = myTZ.second();
+      int minute = myTZ.minute();
+
+      if (justChanged)
       {
-        clearBuffer({.position = 135, .time = 5000});
-
-        drawTime();
-
-        writeBuffer();
-        lastMinute = myTZ.minute();
+        drawTimeMove(myTZ.hourFormat12(), minute, TIME_LEAD * 1000);
+        lastDrawnMinute = minute;
+      }
+      else if (second < 60 - TIME_LEAD)
+      {
+        if (lastDrawnMinute != minute) // catch-up
+          drawTimeMove(myTZ.hourFormat12(), minute, TIME_LEAD * 1000), lastDrawnMinute = minute;
+      }
+      else
+      {
+        int upcomingMinute = (minute + 1) % 60;
+        if (lastDrawnMinute != upcomingMinute)
+        {
+          int upHour, upMin;
+          upcomingTime(upHour, upMin);
+          drawTimeMove(upHour, upMin, (60 - second) * 1000);
+          lastDrawnMinute = upcomingMinute;
+        }
       }
       break;
+    }
 
     case MODE_CUSTOM:
       if (justChanged)
@@ -547,6 +615,34 @@ void loop()
       if (justChanged)
       {
         radialwave();
+      }
+      break;
+    case MODE_TEST:
+      if (justChanged)
+      {
+        clearBuffer({.time = 2000, .optimize = false});
+
+        for (int i = 0; i < WIDTH; i++) {
+          for (int j = 0; j < HEIGHT; j++) {
+            buffer[i][j][0].position = 135;
+            buffer[i][j][1].position = 0;
+          }
+        }
+
+        writeBuffer();
+        
+        delay(2500);
+
+        for (int i = 0; i < WIDTH; i++) {
+          for (int j = 0; j < HEIGHT; j++) {
+            buffer[i][j][0].position = 135;
+            buffer[i][j][1].position = 0;
+            buffer[i][j][1].speed = 90;
+            buffer[i][j][1].keepRunning = true;
+          }
+        }
+
+        writeBuffer();
       }
       break;
     }
@@ -707,6 +803,9 @@ void sendStatus()
   case MODE_RADIAL:
     modeName = "radial";
     break;
+  case MODE_TEST:
+    modeName = "test";
+    break;
   }
 
   // Check if firmware exists in PSRAM
@@ -850,6 +949,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         mode = MODE_ALT_WAVE_DIAG;
       else if (newmode == "radial")
         mode = MODE_RADIAL;
+      else if (newmode == "test")
+        mode = MODE_TEST;
 
       customText = doc["custom"].as<String>();
 
