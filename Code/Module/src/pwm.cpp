@@ -1,9 +1,9 @@
 #include "pins.h"
 #include "pwm.h"
 
-#define PWM_RESOLUTION 102
+// #define PWM_RESOLUTION 102
 // #define PWM_RESOLUTION 128
-// #define PWM_RESOLUTION 76
+#define PWM_RESOLUTION 76
 // #define PWM_RESOLUTION 96
 #define NUM_PWM_PINS 16
 #define PWM_TICKS (PWM_RESOLUTION + 1) // tick values 0..PWM_RESOLUTION
@@ -139,7 +139,7 @@ void setPWMDuty(uint8_t pin, uint16_t duty)
     {
         if (pinMap[i] == pin)
         {
-            duties[i] = map(duty, 0, UINT16_MAX, 0, PWM_RESOLUTION);
+            duties[i] = map(duty, 0, UINT8_MAX, 0, PWM_RESOLUTION);
             dutiesDirty = true;
             return;
         }

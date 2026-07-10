@@ -8,6 +8,7 @@
 #include "../../Master/src/motorcontrol.h"
 #include <rom/gpio.h>
 
+#include "mcpwm.h"
 #include "pwm.h"
 
 #include "NewStepper.h"
@@ -131,39 +132,48 @@ void setup() {
   // headroom).
   xTaskCreatePinnedToCore(serialTask, "SerialTask", 8192, NULL, 1, NULL, 0);
 
-  #else
+#else
 
-  NewStepper *motor = new NewStepper(M4_A1, M4_A2, M4_A4, M4_A3);
+  NewStepper *motor1 = new NewStepper(M4_A1, M4_A2, M4_A3, M4_A4, MICRO_STEP_MCPWM);
+  NewStepper *motor2 = new NewStepper(M4_B3, M4_B4, M4_B1, M4_B2, MICRO_STEP_LEDC);
+
+  // Only the two magnitude legs per motor (pin1A/pin2A) go to MCPWM. The
+  // direction legs (pin1B/pin2B) MUST stay plain GPIO so digitalWrite in
+  // writeMicrostep can flip coil polarity; bind them to MCPWM and they're stuck
+  // at idle duty, the field never reverses, and the motor only vibrates.
+  // Called after the constructors so MCPWM owns the pad last.
+  mcpwmInit((uint8_t[]){M4_A1, M4_A3, M4_B3, M4_B1}, 4);
 
   while (true) {
-    motor->halfstep();
-    delayMicroseconds(1000000U / MICRO_STEPS_PER_REVOLUTION);
+    motor1->microstep();
+    motor2->microstep();
+    delayMicroseconds(10 * (1000000U / MICRO_STEPS_PER_REVOLUTION));
   }
 
-  // // spin forever to test motors
-  // while (true)
-  // {
+// // spin forever to test motors
+// while (true)
+// {
 
-  //   for (int i = 0; i <= MICRO_STEPS_PER_REVOLUTION; i++)
-  //   {
-  //     modules[0]->hourStepper->writeStep(i);
-  //     modules[0]->minuteStepper->writeStep(i);
+//   for (int i = 0; i <= MICRO_STEPS_PER_REVOLUTION; i++)
+//   {
+//     modules[0]->hourStepper->writeStep(i);
+//     modules[0]->minuteStepper->writeStep(i);
 
-  //     modules[1]->hourStepper->writeStep(i);
-  //     modules[1]->minuteStepper->writeStep(i);
+//     modules[1]->hourStepper->writeStep(i);
+//     modules[1]->minuteStepper->writeStep(i);
 
-  //     modules[2]->hourStepper->writeStep(i);
-  //     modules[2]->minuteStepper->writeStep(i);
+//     modules[2]->hourStepper->writeStep(i);
+//     modules[2]->minuteStepper->writeStep(i);
 
-  //     modules[3]->hourStepper->writeStep(i);
-  //     modules[3]->minuteStepper->writeStep(i);
+//     modules[3]->hourStepper->writeStep(i);
+//     modules[3]->minuteStepper->writeStep(i);
 
-  //     delayMicroseconds(4 * 1000000U / MICRO_STEPS_PER_REVOLUTION);
-  //   }
+//     delayMicroseconds(4 * 1000000U / MICRO_STEPS_PER_REVOLUTION);
+//   }
 
-  //   delay(1000);
-  // }
-  #endif
+//   delay(1000);
+// }
+#endif
 }
 
 bool firmwareUpdate = false;
