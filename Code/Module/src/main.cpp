@@ -2,13 +2,15 @@
 #include "ClockModule.h"
 #include "SerialTransfer.h"
 #include "Update.h"
-#include "version.h"
 #include "esp_task_wdt.h"
+#include "version.h"
 
-#include <rom/gpio.h>
 #include "../../Master/src/motorcontrol.h"
+#include <rom/gpio.h>
 
 #include "pwm.h"
+
+#include "NewStepper.h"
 
 #define BAUDRATE 2000000
 #define BUFFER_SIZE (1024 * 1024) // 1MB buffer for FW updates
@@ -23,8 +25,7 @@ int in = 0, out = 0;
 
 void serialTask(void *);
 
-void setup()
-{
+void setup() {
   setCpuFrequencyMhz(240); // Set CPU frequency to 240 MHz
 
   // Serial
@@ -61,6 +62,8 @@ void setup()
   log_d("Used PSRAM: %d", ESP.getPsramSize() - ESP.getFreePsram());
   log_d("Free PSRAM: %d", ESP.getFreePsram());
 
+#ifndef MOTOR_TEST
+
   pinMode(UART_A, INPUT_PULLDOWN);
   pinMode(UART_B, INPUT_PULLDOWN);
 
@@ -76,26 +79,22 @@ void setup()
 
   bool listening = true;
 
-  while (listening) // wait until previous module sends message to determine input and output pins
+  while (listening) // wait until previous module sends message to determine
+                    // input and output pins
   {
-    if (Serial1.available() > 10)
-    {
+    if (Serial1.available() > 10) {
       in = UART_A;
       out = UART_B;
       listening = false;
       Serial.println("");
       Serial.println("Using UART_A as input");
-    }
-    else if (Serial2.available() > 10)
-    {
+    } else if (Serial2.available() > 10) {
       in = UART_B;
       out = UART_A;
       listening = false;
       Serial.println("");
       Serial.println("Using UART_B as input");
-    }
-    else
-    {
+    } else {
       Serial.print(".");
       delay(100);
     }
@@ -128,8 +127,18 @@ void setup()
   modules[3] = new ClockModule(3);
 
   // Run the serial loop on core 0, leaving core 1 to the PWM busy loop. Stack
-  // matches the Arduino loop task (the firmware-update path needs the headroom).
+  // matches the Arduino loop task (the firmware-update path needs the
+  // headroom).
   xTaskCreatePinnedToCore(serialTask, "SerialTask", 8192, NULL, 1, NULL, 0);
+
+  #else
+
+  NewStepper *motor = new NewStepper(M4_A1, M4_A2, M4_A4, M4_A3);
+
+  while (true) {
+    motor->halfstep();
+    delayMicroseconds(1000000U / MICRO_STEPS_PER_REVOLUTION);
+  }
 
   // // spin forever to test motors
   // while (true)
@@ -154,6 +163,7 @@ void setup()
 
   //   delay(1000);
   // }
+  #endif
 }
 
 bool firmwareUpdate = false;
@@ -164,49 +174,38 @@ uint32_t recievedBytes = 0;
 // task on core 0 (see setup) so it stays off core 1, which the PWM busy loop
 // owns. esp_timer-based stepping also lives on core 0 and just briefly preempts
 // this at higher priority — that's fine; serial RX is FIFO/ring-buffered.
-void serialLoopBody()
-{
-  if (firmwareUpdate)
-  {
-    if (serialTransfer.available())
-    {
+void serialLoopBody() {
+  if (firmwareUpdate) {
+    if (serialTransfer.available()) {
       uint16_t recSize = 0;
       uint32_t byte;
       recSize = serialTransfer.rxObj(byte, recSize);
 
       // Firmware Update packet handler
-      if (serialTransfer.currentPacketID() == 1)
-      {
-        for (uint8_t i = 4; i < serialTransfer.bytesRead; i++)
-        {
+      if (serialTransfer.currentPacketID() == 1) {
+        for (uint8_t i = 4; i < serialTransfer.bytesRead; i++) {
           largeBuffer[recievedBytes] = serialTransfer.packet.rxBuff[i];
           recievedBytes++;
         }
-      }
-      else if (serialTransfer.currentPacketID() == 2)
-      {
+      } else if (serialTransfer.currentPacketID() == 2) {
         firmwareUpdate = false;
-        Serial.println("Firmware update file recieved, size: " + String(recievedBytes) + " bytes");
+        Serial.println("Firmware update file recieved, size: " +
+                       String(recievedBytes) + " bytes");
 
         Serial.println("Executing Update");
-        if (!Update.begin(recievedBytes))
-        {
+        if (!Update.begin(recievedBytes)) {
           Serial.println("Out of Space!");
           return;
-        }
-        else
+        } else
           Serial.println("Plenty of Space!");
 
         Update.write(largeBuffer, recievedBytes);
 
-        if (Update.end())
-        {
+        if (Update.end()) {
           Serial.println("Successful update, rebooting...");
           Serial.flush();
           ESP.restart();
-        }
-        else
-        {
+        } else {
           Serial.println("Error Occurred: " + String(Update.getError()));
           Serial.println("Update aborted!");
           return;
@@ -216,19 +215,16 @@ void serialLoopBody()
     return;
   }
 
-  if (serialTransfer.available())
-  {
+  if (serialTransfer.available()) {
     uint16_t recSize = 0;
     uint8_t address;
     recSize = serialTransfer.rxObj(address, recSize);
 
-    if (address < 200)
-    {
+    if (address < 200) {
       MotorControl_t buffer[4][2];
       recSize = serialTransfer.rxObj(buffer, recSize);
 
-      if (address > 0)
-      {
+      if (address > 0) {
         // forward packets to next module
 
         uint16_t sendSize = 0;
@@ -236,29 +232,34 @@ void serialLoopBody()
         sendSize = serialTransfer.txObj(sendAddress, sendSize);
         sendSize = serialTransfer.txObj(buffer, sendSize);
 
-        Serial.printf("Recieved for %d, forwarding to %d\n", address, sendAddress);
+        Serial.printf("Recieved for %d, forwarding to %d\n", address,
+                      sendAddress);
 
         serialTransfer.sendData(sendSize);
-      }
-      else
-      {
+      } else {
         // address 0 mean it is for me
         Serial.print("Buffer: [");
-        for (int i = 0; i < 4; i++)
-        {
-          Serial.print("[" + String(buffer[i][0].position) + ", " + String(buffer[i][1].position) + "]" + (i < 3 ? ", " : ""));
+        for (int i = 0; i < 4; i++) {
+          Serial.print("[" + String(buffer[i][0].position) + ", " +
+                       String(buffer[i][1].position) + "]" +
+                       (i < 3 ? ", " : ""));
         }
         Serial.println("]");
 
-        for (int i = 0; i < 4; i++)
-        {
-          if (buffer[i][0].optimize && buffer[i][1].optimize)
-          {
-            uint16_t distA = abs(modules[i]->hourStepper->getCurrentPosition() - buffer[i][0].position) + abs(modules[i]->minuteStepper->getCurrentPosition() - buffer[i][1].position);
-            uint16_t distB = abs(modules[i]->minuteStepper->getCurrentPosition() - buffer[i][0].position) + abs(modules[i]->hourStepper->getCurrentPosition() - buffer[i][1].position);
+        for (int i = 0; i < 4; i++) {
+          if (buffer[i][0].optimize && buffer[i][1].optimize) {
+            uint16_t distA =
+                abs(modules[i]->hourStepper->getCurrentPosition() -
+                    buffer[i][0].position) +
+                abs(modules[i]->minuteStepper->getCurrentPosition() -
+                    buffer[i][1].position);
+            uint16_t distB =
+                abs(modules[i]->minuteStepper->getCurrentPosition() -
+                    buffer[i][0].position) +
+                abs(modules[i]->hourStepper->getCurrentPosition() -
+                    buffer[i][1].position);
 
-            if (distB < distA)
-            {
+            if (distB < distA) {
               // swap positions
               MotorControl_t temp = buffer[i][0];
               buffer[i][0] = buffer[i][1];
@@ -270,21 +271,18 @@ void serialLoopBody()
           modules[i]->minuteStepper->applyMotorControl(buffer[i][1]);
         }
       }
-    }
-    else
-    {
-      switch (address)
-      {
+    } else {
+      switch (address) {
       case 200:
         // sent from previous module to determine input and output pins
         break;
-      case 201:
-      {
+      case 201: {
         // start recieving new firmware
         firmwareUpdate = true;
         recievedBytes = 0;
         serialTransfer.rxObj(firmwareSize, recSize);
-        Serial.println("A FW Update Starting, expected size: " + String(firmwareSize) + " bytes");
+        Serial.println("A FW Update Starting, expected size: " +
+                       String(firmwareSize) + " bytes");
 
         uint16_t headerSize = 0;
 
@@ -300,16 +298,17 @@ void serialLoopBody()
         Serial1.setPins(in, -1);
         Serial1.begin(BAUDRATE);
 
-        // mirror the uart input to the output so that all data will be forwarded to the next module to firmware update all of them at the same time
-        // me and dad spend a whole weekend figuring out these two lines of code
+        // mirror the uart input to the output so that all data will be
+        // forwarded to the next module to firmware update all of them at the
+        // same time me and dad spend a whole weekend figuring out these two
+        // lines of code
         gpio_matrix_in(in, SIG_IN_FUNC_212_IDX, false);
         gpio_matrix_out(out, SIG_IN_FUNC_212_IDX, false, false);
         break;
       }
       case 220:
         // Calibration command, zeros motors to straight down (90°)
-        for (int i = 0; i < 4; i++)
-        {
+        for (int i = 0; i < 4; i++) {
           modules[i]->hourStepper->setPosition(90);
           modules[i]->minuteStepper->setPosition(90);
         }
@@ -319,8 +318,7 @@ void serialLoopBody()
   }
 }
 
-void serialTask(void *)
-{
+void serialTask(void *) {
   for (;;)
     serialLoopBody();
 }
@@ -328,7 +326,4 @@ void serialTask(void *)
 // The Arduino loopTask runs on core 1, which the PWM busy loop owns. Keep it
 // dormant so it never steals cycles from PWM; all real work runs in serialTask
 // (core 0) and the esp_timer stepping callbacks.
-void loop()
-{
-  vTaskDelay(portMAX_DELAY);
-}
+void loop() { vTaskDelay(portMAX_DELAY); }
