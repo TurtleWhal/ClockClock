@@ -54,11 +54,12 @@ private:
     uint8_t pinA = (magnet == 1) ? pin1A : pin2A;
     uint8_t pinB = (magnet == 1) ? pin1B : pin2B;
 
+    // 155 is ~60% of the max power so to stop hard power difference near 100% duty cycle
     if (value > 0) {
-      analogWrite(pinA, (uint8_t)(value * 255));
+      analogWrite(pinA, (uint8_t)(value * 155));
       digitalWrite(pinB, LOW);
     } else if (value < 0) {
-      analogWrite(pinB, 255 - (uint8_t)(value * 255));
+      analogWrite(pinB, 255 - (uint8_t)(value * 155));
       digitalWrite(pinA, HIGH);
     } else {
       digitalWrite(pinA, LOW);
@@ -96,8 +97,8 @@ public:
     pinMode(pin2B, OUTPUT);
 
     if (method == MICRO_STEP_LEDC) {
-      analogWriteFrequency(pin1A, 20000);
-      analogWriteFrequency(pin2A, 20000);
+      analogWriteFrequency(pin1A, 40000);
+      analogWriteFrequency(pin2A, 40000);
     }
 
     for (uint8_t i = 0; i < MICROSTEPS * 4; i++) {
@@ -109,8 +110,8 @@ public:
   }
 
   // MICROSTEPS should be 1
-  void fullstep() {
-    currentStep = (currentStep + 1) % 4;
+  void fullstep(bool clockwise = true) {
+    currentStep = clockwise ? (currentStep + 1) % 4 : (currentStep - 1 + 4) % 4;
 
     switch (currentStep) {
     case 0:
@@ -133,8 +134,8 @@ public:
   }
 
   // MICROSTEPS should be 2
-  void halfstep() {
-    currentStep = (currentStep + 1) % 8;
+  void halfstep(bool clockwise = true) {
+    currentStep = clockwise ? (currentStep + 1) % 8 : (currentStep - 1 + 8) % 8;
 
     switch (currentStep) {
     case 0:
@@ -172,27 +173,27 @@ public:
     }
   }
 
-  void slowmicrostep() {
-    currentStep = (currentStep + 1) % (4 * MICROSTEPS);
+  void slowmicrostep(bool clockwise = true) {
+    currentStep = clockwise ? (currentStep + 1) % (4 * MICROSTEPS) : (currentStep - 1 + (4 * MICROSTEPS)) % (4 * MICROSTEPS);
 
     writeMagnetAnalog(1, sinf((currentStep * 2 * PI) / (4 * MICROSTEPS)));
     writeMagnetAnalog(2, cosf((currentStep * 2 * PI) / (4 * MICROSTEPS)));
   }
 
-  void microstep() {
-    currentStep = (currentStep + 1) % (4 * MICROSTEPS);
+  void microstep(bool clockwise = true) {
+    currentStep = clockwise ? (currentStep + 1) % (4 * MICROSTEPS) : (currentStep - 1 + (4 * MICROSTEPS)) % (4 * MICROSTEPS);
 
     writeMicrostep(currentStep);
   }
 
-  void step() {
+  void step(bool clockwise = true) {
     if (method == FULL_STEP) {
-      fullstep();
+      fullstep(clockwise);
     } else if (method == HALF_STEP) {
-      halfstep();
+      halfstep(clockwise);
     } else if (method == MICRO_STEP_LEDC || method == MICRO_STEP_MCPWM ||
                method == MICRO_STEP_SWPWM) {
-      microstep();
+      microstep(clockwise);
     }
   }
 };

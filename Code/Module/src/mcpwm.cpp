@@ -30,7 +30,7 @@ void mcpwmInit(const uint8_t *pin, uint8_t count) {
     mcpwm_gpio_init(
         ch[i].u, (mcpwm_io_signals_t)(MCPWM0A + ch[i].t * 2 + ch[i].g), pin[i]);
   }
-  mcpwm_config_t c = {.frequency = 20000,
+  mcpwm_config_t c = {.frequency = 40000,
                       .cmpr_a = 0,
                       .cmpr_b = 0,
                       .duty_mode = MCPWM_DUTY_MODE_0,
