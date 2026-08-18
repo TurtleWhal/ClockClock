@@ -19,11 +19,42 @@
 
 uint8_t *largeBuffer; // For Firmware Updates, located in PSRAM
 
-ClockModule *modules[4];
-
 SerialTransfer serialTransfer;
 
 int in = 0, out = 0;
+
+// ClockModule *modules[4];
+
+NewStepper *motor1F =
+    new NewStepper(M1_A1, M1_A2, M1_A3, M1_A4, MICRO_STEP_MCPWM);
+NewStepper *motor1B =
+    new NewStepper(M1_B3, M1_B4, M1_B1, M1_B2, MICRO_STEP_LEDC);
+NewStepper *motor2F =
+    new NewStepper(M2_A1, M2_A2, M2_A3, M2_A4, MICRO_STEP_MCPWM);
+NewStepper *motor2B =
+    new NewStepper(M2_B3, M2_B4, M2_B1, M2_B2, MICRO_STEP_LEDC);
+NewStepper *motor3F =
+    new NewStepper(M3_A1, M3_A2, M3_A3, M3_A4, MICRO_STEP_MCPWM);
+NewStepper *motor3B =
+    new NewStepper(M3_B3, M3_B4, M3_B1, M3_B2, MICRO_STEP_LEDC);
+NewStepper *motor4F =
+    new NewStepper(M4_A1, M4_A2, M4_A3, M4_A4, MICRO_STEP_MCPWM);
+NewStepper *motor4B =
+    new NewStepper(M4_B3, M4_B4, M4_B1, M4_B2, MICRO_STEP_LEDC);
+
+MotorController *motor1FControl = new MotorController(motor1F);
+MotorController *motor1BControl = new MotorController(motor1B);
+MotorController *motor2FControl = new MotorController(motor2F);
+MotorController *motor2BControl = new MotorController(motor2B);
+MotorController *motor3FControl = new MotorController(motor3F);
+MotorController *motor3BControl = new MotorController(motor3B);
+MotorController *motor4FControl = new MotorController(motor4F);
+MotorController *motor4BControl = new MotorController(motor4B);
+
+MotorController *motors[4][2] = {{motor1BControl, motor1FControl},
+                                 {motor2BControl, motor2FControl},
+                                 {motor3BControl, motor3FControl},
+                                 {motor4BControl, motor4FControl}};
 
 void serialTask(void *);
 
@@ -121,12 +152,37 @@ void setup() {
   sendSize = serialTransfer.txObj("Hello10Bytes", sendSize);
   serialTransfer.sendData(sendSize);
 
-  initPWM();
+  // initPWM();
 
-  modules[0] = new ClockModule(0);
-  modules[1] = new ClockModule(1);
-  modules[2] = new ClockModule(2);
-  modules[3] = new ClockModule(3);
+  // Only the two magnitude legs per motor (pin1A/pin2A) go to MCPWM. The
+  // direction legs (pin1B/pin2B) MUST stay plain GPIO so digitalWrite in
+  // writeMicrostep can flip coil polarity; bind them to MCPWM and they're stuck
+  // at idle duty, the field never reverses, and the motor only vibrates.
+  // Called after the constructors so MCPWM owns the pad last.
+  mcpwmInit((uint8_t[]){M1_A1, M1_A3, M2_A1, M2_A3, M3_A1, M3_A3, M4_A1, M4_A3},
+            8);
+
+  for (uint8_t i = 0; i < 4; i++) {
+    motors[i][0]->setPosition(90);
+    motors[i][1]->setPosition(90);
+
+    MotorControl_t bInit;
+    bInit.position = i % 2 == 0 ? 135 : 45;
+    bInit.time = 3000;
+    bInit.direction = MotorDirection_t::MOTOR_CW;
+    MotorControl_t fInit;
+    fInit.position = i % 2 == 0 ? 315 : 225;
+    fInit.time = 3000;
+    fInit.direction = MotorDirection_t::MOTOR_CW;
+
+    motors[i][0]->applyControl(bInit);
+    motors[i][1]->applyControl(fInit);
+  }
+
+  // modules[0] = new ClockModule(0);
+  // modules[1] = new ClockModule(1);
+  // modules[2] = new ClockModule(2);
+  // modules[3] = new ClockModule(3);
 
   // Run the serial loop on core 0, leaving core 1 to the PWM busy loop. Stack
   // matches the Arduino loop task (the firmware-update path needs the
@@ -135,21 +191,30 @@ void setup() {
 
 #else
 
-  NewStepper *motor1F = new NewStepper(M1_A1, M1_A2, M1_A3, M1_A4, MICRO_STEP_MCPWM);
-  NewStepper *motor1B = new NewStepper(M1_B3, M1_B4, M1_B1, M1_B2, MICRO_STEP_LEDC);
-  NewStepper *motor2F = new NewStepper(M2_A1, M2_A2, M2_A3, M2_A4, MICRO_STEP_MCPWM);
-  NewStepper *motor2B = new NewStepper(M2_B3, M2_B4, M2_B1, M2_B2, MICRO_STEP_LEDC);
-  NewStepper *motor3F = new NewStepper(M3_A1, M3_A2, M3_A3, M3_A4, MICRO_STEP_MCPWM);
-  NewStepper *motor3B = new NewStepper(M3_B3, M3_B4, M3_B1, M3_B2, MICRO_STEP_LEDC);
-  NewStepper *motor4F = new NewStepper(M4_A1, M4_A2, M4_A3, M4_A4, MICRO_STEP_MCPWM);
-  NewStepper *motor4B = new NewStepper(M4_B3, M4_B4, M4_B1, M4_B2, MICRO_STEP_LEDC);
+  NewStepper *motor1F =
+      new NewStepper(M1_A1, M1_A2, M1_A3, M1_A4, MICRO_STEP_MCPWM);
+  NewStepper *motor1B =
+      new NewStepper(M1_B3, M1_B4, M1_B1, M1_B2, MICRO_STEP_LEDC);
+  NewStepper *motor2F =
+      new NewStepper(M2_A1, M2_A2, M2_A3, M2_A4, MICRO_STEP_MCPWM);
+  NewStepper *motor2B =
+      new NewStepper(M2_B3, M2_B4, M2_B1, M2_B2, MICRO_STEP_LEDC);
+  NewStepper *motor3F =
+      new NewStepper(M3_A1, M3_A2, M3_A3, M3_A4, MICRO_STEP_MCPWM);
+  NewStepper *motor3B =
+      new NewStepper(M3_B3, M3_B4, M3_B1, M3_B2, MICRO_STEP_LEDC);
+  NewStepper *motor4F =
+      new NewStepper(M4_A1, M4_A2, M4_A3, M4_A4, MICRO_STEP_MCPWM);
+  NewStepper *motor4B =
+      new NewStepper(M4_B3, M4_B4, M4_B1, M4_B2, MICRO_STEP_LEDC);
 
   // Only the two magnitude legs per motor (pin1A/pin2A) go to MCPWM. The
   // direction legs (pin1B/pin2B) MUST stay plain GPIO so digitalWrite in
   // writeMicrostep can flip coil polarity; bind them to MCPWM and they're stuck
   // at idle duty, the field never reverses, and the motor only vibrates.
   // Called after the constructors so MCPWM owns the pad last.
-  mcpwmInit((uint8_t[]){M1_A1, M1_A3, M2_A1, M2_A3, M3_A1, M3_A3, M4_A1, M4_A3}, 8);
+  mcpwmInit((uint8_t[]){M1_A1, M1_A3, M2_A1, M2_A3, M3_A1, M3_A3, M4_A1, M4_A3},
+            8);
 
   MotorController *motor1FControl = new MotorController(motor1F);
   MotorController *motor1BControl = new MotorController(motor1B);
@@ -163,24 +228,37 @@ void setup() {
   MotorControl_t c;
 
   // c.direction = MotorDirection_t::MOTOR_CW;
-  
+
   // motor4FControl->applyControl(c);
-  
+
+  // while (true) {
+  //   c.direction = MotorDirection_t::MOTOR_CW;
+  //   c.speed = 90;
+  //   c.keepRunning = true;
+  //   motor4FControl->applyControl(c);
+
+  //   delay(11000);
+
+  //   c.position = 0;
+  //   c.direction = MotorDirection_t::MOTOR_CCW;
+  //   c.time = 5000;
+  //   c.keepRunning = false;
+  //   motor4FControl->applyControl(c);
+
+  //   delay(7000);
+  // }
+
+  // MotorControl_t init;
+  //   init.direction = MotorDirection_t::MOTOR_CW;
+  //   init.speed = 45;
+  //   init.keepRunning = true;
+
+  //   motor1FControl->applyControl(init);
+  //   motor1BControl->applyControl(init);
+
   while (true) {
-    c.direction = MotorDirection_t::MOTOR_CW;
-    c.speed = 90;
-    c.keepRunning = true;
-    motor4FControl->applyControl(c);
-    
-    delay(11000);
-    
-    c.position = 0;
-    c.direction = MotorDirection_t::MOTOR_CCW;
-    c.time = 5000;
-    c.keepRunning = false;
-    motor4FControl->applyControl(c);
-    
-    delay(7000);
+    motor4B->step();
+    delayMicroseconds((1000 / 4) * 32 / 64);
   }
 
 #endif
@@ -268,16 +346,24 @@ void serialLoopBody() {
 
         for (int i = 0; i < 4; i++) {
           if (buffer[i][0].optimize && buffer[i][1].optimize) {
+            // uint16_t distA =
+            //     abs(modules[i]->hourStepper->getCurrentPosition() -
+            //         buffer[i][0].position) +
+            //     abs(modules[i]->minuteStepper->getCurrentPosition() -
+            //         buffer[i][1].position);
+            // uint16_t distB =
+            //     abs(modules[i]->minuteStepper->getCurrentPosition() -
+            //         buffer[i][0].position) +
+            //     abs(modules[i]->hourStepper->getCurrentPosition() -
+            //         buffer[i][1].position);
             uint16_t distA =
-                abs(modules[i]->hourStepper->getCurrentPosition() -
+                abs(motors[i][0]->getCurrentPosition() -
                     buffer[i][0].position) +
-                abs(modules[i]->minuteStepper->getCurrentPosition() -
-                    buffer[i][1].position);
+                abs(motors[i][1]->getCurrentPosition() - buffer[i][1].position);
             uint16_t distB =
-                abs(modules[i]->minuteStepper->getCurrentPosition() -
+                abs(motors[i][0]->getCurrentPosition() -
                     buffer[i][0].position) +
-                abs(modules[i]->hourStepper->getCurrentPosition() -
-                    buffer[i][1].position);
+                abs(motors[i][1]->getCurrentPosition() - buffer[i][1].position);
 
             if (distB < distA) {
               // swap positions
@@ -287,8 +373,11 @@ void serialLoopBody() {
             }
           }
 
-          modules[i]->hourStepper->applyMotorControl(buffer[i][0]);
-          modules[i]->minuteStepper->applyMotorControl(buffer[i][1]);
+          // modules[i]->hourStepper->applyMotorControl(buffer[i][0]);
+          // modules[i]->minuteStepper->applyMotorControl(buffer[i][1]);
+
+          motors[i][0]->applyControl(buffer[i][0]);
+          motors[i][1]->applyControl(buffer[i][1]);
         }
       }
     } else {
@@ -329,8 +418,10 @@ void serialLoopBody() {
       case 220:
         // Calibration command, zeros motors to straight down (90°)
         for (int i = 0; i < 4; i++) {
-          modules[i]->hourStepper->setPosition(90);
-          modules[i]->minuteStepper->setPosition(90);
+          // modules[i]->hourStepper->setPosition(90);
+          // modules[i]->minuteStepper->setPosition(90);
+          motors[i][0]->setPosition(90);
+          motors[i][1]->setPosition(90);
         }
         break;
       }

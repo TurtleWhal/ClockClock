@@ -12,29 +12,30 @@ private:
   float position = 0.0f; // current position in microsteps (CW = increasing)
   float speed = 0.0f;    // signed velocity, degrees/second (+ = CW)
 
-  uint64_t lastdelay = 1000; // last delay in microseconds
-
   // Effective profile parameters for the active move. Normally copied straight
   // from the command, but overridden when a target time is requested (see
   // applyControl). Defaults mirror MotorControl_t.
-  float accel = 50.0f;        // deg/s^2
-  float cruiseSpeed = 150.0f; // deg/s
+  float accel = 50.0f;           // deg/s^2
+  float cruiseSpeed = 150.0f;    // deg/s
+  float decelK = 0.0f;           // MICRO_STEPS_PER_DEGREE/(2*accel); precomputed per move
+  float targetMicrosteps = 0.0f; // move target, normalized to [0, REV)
+
+  // Step-timing state. lastStepTime drives measured-dt velocity integration;
+  // nextStepTime is the absolute deadline the scheduler aims each step at, so
+  // callback run time and dispatch latency can't accumulate into drift.
+  int64_t lastStepTime = 0; // µs (esp_timer_get_time)
+  int64_t nextStepTime = 0; // µs (esp_timer_get_time)
 
   // Signed distance (microsteps) from the current position to `target`,
   // honoring control.direction and 360° wrap-around. Positive => clockwise
-  // (step(true), position++). Read-only, so it's safe to call before position
-  // has been normalized.
+  // (step(true), position++). Both `position` and `target` must already be
+  // normalized to [0, REV) — the callers keep them that way, so this stays
+  // fmodf-free for the hot path.
   float signedDistance(float target) {
     const float REV = (float)MICRO_STEPS_PER_REVOLUTION;
-    float pos = fmodf(position, REV);
-    if (pos < 0.0f)
-      pos += REV;
-
-    // Distance to the target going each way around the circle, both as
-    // non-negative magnitudes in [0, REV).
-    float forward = fmodf(target - pos, REV); // clockwise travel
+    float forward = target - position; // clockwise travel, in (-REV, REV)
     if (forward < 0.0f)
-      forward += REV;
+      forward += REV; // -> [0, REV)
     float backward = (forward == 0.0f) ? 0.0f : REV - forward; // ccw travel
 
     switch (control.direction) {
@@ -47,105 +48,115 @@ private:
     }
   }
 
+  // Arm the timer for the next step on an ABSOLUTE timeline. The deadline is
+  // referenced to when the step *should* fire (nextStepTime += period), not to
+  // "now", so this callback's own run time and the esp_timer dispatch latency
+  // don't accumulate into the step period. Every motor therefore holds the
+  // profile's commanded average rate: no speed drift, and equal-time moves stay
+  // in lockstep. The period is capped so a near-zero speed can't stall or divide
+  // by zero; speed itself is never clamped (velocity stays continuous).
+  inline void scheduleNext(float absSpeed) {
+    constexpr float kUsecPerStepAt1Dps =
+        1000000.0f * 360.0f / MICRO_STEPS_PER_REVOLUTION; // 15625 µs
+    constexpr uint32_t kMaxPeriod = 20000;                // µs (~0.78 deg/s floor)
+    uint32_t period = (absSpeed > 1.0f)
+                          ? (uint32_t)(kUsecPerStepAt1Dps / absSpeed)
+                          : kMaxPeriod;
+
+    nextStepTime += period;
+    int64_t now = esp_timer_get_time();
+    int64_t wait = nextStepTime - now;
+    if (wait < 1) { // fell behind (saturated/preempted) — fire ASAP and resync
+      wait = 1;
+      nextStepTime = now;
+    }
+    esp_timer_start_once(timer, (uint64_t)wait);
+  }
+
   // The actual task — a normal member function with full access to private
-  // members (motor, etc.) via the implicit `this`. Re-arms the timer each call
-  // so it fires again after one step interval. `speed` is a *signed* velocity
-  // (+ = CW), so an interrupting command never causes a discontinuous reversal:
-  // the step direction follows sign(speed), and a target behind the motor is
-  // reached by braking through zero, not by flipping the step direction.
+  // members (motor, etc.) via the implicit `this`. `speed` is a *signed*
+  // velocity (+ = CW): the step direction follows its sign, so an interrupting
+  // command never causes a discontinuous reversal — a target behind the motor
+  // is reached by braking through zero.
   void controlTask() {
     const float REV = (float)MICRO_STEPS_PER_REVOLUTION;
 
-    // Keep position within one revolution so the wrap-around math stays exact
-    // and the float doesn't drift unbounded. CW = increasing microsteps.
-    position = fmodf(position, REV);
-    if (position < 0.0f)
+    // Measured elapsed time since the previous step. Integrating velocity
+    // against the *real* interval (not the intended one) keeps the speed profile
+    // locked to wall-clock even when a tick is dispatched late.
+    int64_t now = esp_timer_get_time();
+    float dt = (now - lastStepTime) * 0.000001f;
+    if (dt > 0.05f)
+      dt = 0.05f; // clamp so a long preemption stall can't jolt the speed
+    lastStepTime = now;
+
+    // Cheap wrap: position moves <= 1 microstep per tick, so one compare-subtract
+    // keeps it in [0, REV) — no fmodf in the hot path.
+    if (position >= REV)
+      position -= REV;
+    else if (position < 0.0f)
       position += REV;
 
-    // Continuous-spin mode: accelerate toward control.speed in the commanded
-    // direction and keep going — there's no target position. A later position
-    // command (keepRunning=false) inherits the current speed and decelerates in.
+    float accelStep = accel * dt; // velocity change available this tick
+
+    // Continuous-spin mode: ramp toward control.speed in the commanded direction
+    // and keep going. A later position command inherits `speed` and decelerates.
     if (control.keepRunning) {
-      float dt = lastdelay * 0.000001f;
       float targetVel = (control.direction == MotorDirection_t::MOTOR_CCW)
                             ? -(float)control.speed
                             : (float)control.speed;
-
       if (speed < targetVel) {
-        speed += accel * dt;
+        speed += accelStep;
         if (speed > targetVel)
           speed = targetVel;
       } else if (speed > targetVel) {
-        speed -= accel * dt;
+        speed -= accelStep;
         if (speed < targetVel)
           speed = targetVel;
       }
 
-      // Keep moving even from a standstill (also avoids a divide-by-zero delay).
-      const float MIN_SPEED = 2.0f; // deg/s
-      if (fabsf(speed) < MIN_SPEED)
-        speed = copysignf(MIN_SPEED, targetVel);
-
-      if (speed > 0.0f) {
+      bool cw = (speed != 0.0f) ? (speed > 0.0f) : (targetVel > 0.0f);
+      if (cw) {
         motor->step(true);
-        position += 1;
+        position += 1.0f;
       } else {
         motor->step(false);
-        position -= 1;
+        position -= 1.0f;
       }
-
-      float stepsPerSecond = fabsf(speed) * MICRO_STEPS_PER_REVOLUTION / 360.0f;
-      lastdelay = (uint64_t)(1000000.0f / stepsPerSecond);
-      esp_timer_start_once(timer, lastdelay);
+      scheduleNext(fabsf(speed));
       return;
     }
 
-    float target = control.position * MICRO_STEPS_PER_DEGREE; // 0..REV microsteps
-    float diff = signedDistance(target); // signed microsteps to target
+    float diff = signedDistance(targetMicrosteps); // signed microsteps to target
     float absdiff = fabsf(diff);
-    float dt = lastdelay * 0.000001f; // seconds
 
-    // Arrived: snap exactly and hold (don't re-arm the timer). The creep floor
-    // bounds |speed| to MIN_SPEED here, so zeroing it is never a large jump.
+    // Arrived: snap exactly and hold (leave the timer stopped). The profile
+    // decelerates to ~0 here, so zeroing the speed isn't a discontinuity.
     if (absdiff < 1.0f) {
-      position = target;
+      position = targetMicrosteps;
       speed = 0.0f;
       return;
     }
 
-    // Distance needed to brake the current speed to zero, in microsteps.
-    float decelDist = (speed * speed) / (2.0f * accel) * MICRO_STEPS_PER_DEGREE;
+    float decelDist = speed * speed * decelK; // v^2/(2a), in microsteps
 
-    if (speed * diff < 0.0f)
-      // Moving away from the target -> brake toward zero, then reverse.
-      speed -= copysignf(accel * dt, speed);
-    else if (decelDist >= absdiff)
-      // Within braking distance -> decelerate so we land on the target.
-      speed -= copysignf(accel * dt, speed);
+    if (speed * diff < 0.0f || decelDist >= absdiff)
+      speed -= copysignf(accelStep, speed); // brake toward zero / land on target
     else if (fabsf(speed) < cruiseSpeed)
-      // Room to spare -> accelerate toward the cruise cap.
-      speed += copysignf(accel * dt, diff);
+      speed += copysignf(accelStep, diff); // accelerate toward the cruise cap
     else if (fabsf(speed) > cruiseSpeed)
-      // Above the cap (e.g. inherited a higher speed) -> ease down to it.
-      speed -= copysignf(accel * dt, speed);
+      speed -= copysignf(accelStep, speed); // ease down to the cap
 
-    // Creep floor: never stall before arriving; always nudge toward the target.
-    const float MIN_SPEED = 2.0f; // deg/s
-    if (fabsf(speed) < MIN_SPEED)
-      speed = copysignf(MIN_SPEED, diff);
-
-    // Step in the direction we're actually traveling.
-    if (speed > 0.0f) {
+    // Step in the travel direction (toward the target when momentarily at rest).
+    bool cw = (speed != 0.0f) ? (speed > 0.0f) : (diff > 0.0f);
+    if (cw) {
       motor->step(true);
-      position += 1;
+      position += 1.0f;
     } else {
       motor->step(false);
-      position -= 1;
+      position -= 1.0f;
     }
-
-    float stepsPerSecond = fabsf(speed) * MICRO_STEPS_PER_REVOLUTION / 360.0f;
-    lastdelay = (uint64_t)(1000000.0f / stepsPerSecond);
-    esp_timer_start_once(timer, lastdelay);
+    scheduleNext(fabsf(speed));
   }
 
   // Timer that drives the task. The callback recovers `this` and jumps into
@@ -156,16 +167,44 @@ private:
       .arg = (void *)this, // arbitrary argument to pass to callback
       .name = "MotorControl"};
 
-  esp_timer_handle_t timer;
+  esp_timer_handle_t timer = nullptr;
 
 public:
   MotorController(NewStepper *motor) : motor(motor) {
-    esp_timer_create(&timer_args, &timer);
-    // esp_timer_start_once(timer, 0); // start immediately
+    // The esp_timer is created lazily on the first applyControl(), NOT here.
+    // These controllers are constructed at global/static-init time — before the
+    // esp_timer service is running — so esp_timer_create() would fail and leave
+    // `timer` invalid, which then crashed esp_timer_start_once() (a
+    // LoadProhibited on the garbage handle). By the first applyControl(),
+    // setup() has run and creation is safe.
   }
 
   void applyControl(const MotorControl_t &control) {
+    if (timer == nullptr)
+      esp_timer_create(&timer_args, &timer);
+
+    // Capture the outgoing mode before `control` is overwritten.
+    bool wasSpinning = this->control.keepRunning;
+
     this->control = control;
+
+    // Leaving constant-velocity (keepRunning) mode with a SHORTEST move: don't
+    // let the motor turn around. Resolve SHORTEST to keep spinning the way it's
+    // already going, so it decelerates to the target in that direction (even if
+    // that's the long way around the dial).
+    if (wasSpinning && !control.keepRunning && speed != 0.0f &&
+        control.direction == MotorDirection_t::MOTOR_SHORTEST) {
+      this->control.direction = (speed > 0.0f) ? MotorDirection_t::MOTOR_CW
+                                               : MotorDirection_t::MOTOR_CCW;
+    }
+
+    // Precompute the move target once, normalized to [0, REV), so the hot loop
+    // and signedDistance() stay fmodf-free.
+    const float REV = (float)MICRO_STEPS_PER_REVOLUTION;
+    targetMicrosteps =
+        fmodf((float)(control.position * MICRO_STEPS_PER_DEGREE), REV);
+    if (targetMicrosteps < 0.0f)
+      targetMicrosteps += REV;
 
     // Default: drive the profile straight off the commanded accel/speed. The
     // current velocity is deliberately NOT reset, so an interrupting command
@@ -178,8 +217,7 @@ public:
     // target, and takes exactly `time` ms — so a moving motor blends into the
     // new move and still stops on time, without stopping first.
     if (!control.keepRunning && control.time != UINT16_MAX && control.time > 0) {
-      float target = control.position * MICRO_STEPS_PER_DEGREE;
-      float sd = signedDistance(target);                   // signed microsteps
+      float sd = signedDistance(targetMicrosteps);         // signed microsteps
       float D = fabsf(sd) / (float)MICRO_STEPS_PER_DEGREE;  // distance, degrees
       float T = control.time * 0.001f;                      // time, seconds
 
@@ -211,9 +249,35 @@ public:
       }
     }
 
+    // Per-move deceleration constant, so the hot loop's brake test is a
+    // multiply instead of a divide: decelDist = speed^2 * decelK.
+    decelK = (accel > 0.0f) ? (MICRO_STEPS_PER_DEGREE / (2.0f * accel)) : 0.0f;
+
+    // Seed the step-timing baseline to "now" so the first step fires promptly
+    // and measured-dt starts clean.
+    lastStepTime = nextStepTime = esp_timer_get_time();
     esp_timer_start_once(timer, 0); // start immediately
   }
 
   // set speed in degrees per second
   void setSpeed(float speed) { this->speed = speed; }
+
+  // Current motor position in degrees, normalized to [0, 360).
+  float getCurrentPosition() {
+    const float REV = (float)MICRO_STEPS_PER_REVOLUTION;
+    float pos = fmodf(position, REV);
+    if (pos < 0.0f)
+      pos += REV;
+    return pos / (float)MICRO_STEPS_PER_DEGREE;
+  }
+
+  // Tell the controller where the hand physically is, in degrees. Used by
+  // calibration to seed the position reference without moving the motor — call
+  // it while the motor is idle so it doesn't race the stepping timer.
+  void setPosition(float degrees) {
+    const float REV = (float)MICRO_STEPS_PER_REVOLUTION;
+    position = fmodf(degrees * MICRO_STEPS_PER_DEGREE, REV);
+    if (position < 0.0f)
+      position += REV;
+  }
 };

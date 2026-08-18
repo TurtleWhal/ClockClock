@@ -2,12 +2,15 @@
 #include "mcpwm.h"
 #include "pwm.h"
 
-#define MICROSTEPS 32
+#define MICROSTEPS 64
 #define STEPS_PER_REVOLUTION 720 // Logical steps (user-facing)
 #define MICRO_STEPS_PER_REVOLUTION                                             \
   (STEPS_PER_REVOLUTION * MICROSTEPS) // Physical microsteps
 #define MICRO_STEPS_PER_DEGREE                                                 \
   (MICRO_STEPS_PER_REVOLUTION / 360) // Physical microsteps
+
+// limit max power to stop hard power difference near 100% duty cycle
+#define MAX_POWER 0.60f
 
 enum MagnetState : uint8_t { OFF = 0, N = 1, S = 2 };
 
@@ -24,7 +27,7 @@ private:
   uint8_t pin1A, pin1B, pin2A, pin2B;
   uint8_t method;
 
-  uint8_t currentStep;
+  uint16_t currentStep;
 
   uint8_t sinTable[MICROSTEPS * 4];
 
@@ -54,12 +57,11 @@ private:
     uint8_t pinA = (magnet == 1) ? pin1A : pin2A;
     uint8_t pinB = (magnet == 1) ? pin1B : pin2B;
 
-    // 155 is ~60% of the max power so to stop hard power difference near 100% duty cycle
     if (value > 0) {
-      analogWrite(pinA, (uint8_t)(value * 155));
+      analogWrite(pinA, (uint8_t)(value * 255 * MAX_POWER));
       digitalWrite(pinB, LOW);
     } else if (value < 0) {
-      analogWrite(pinB, 255 - (uint8_t)(value * 155));
+      analogWrite(pinB, 255 - (uint8_t)(value * 255 * MAX_POWER));
       digitalWrite(pinA, HIGH);
     } else {
       digitalWrite(pinA, LOW);
@@ -67,8 +69,8 @@ private:
     }
   }
 
-  void writeMicrostep(uint8_t step) {
-    uint8_t step90 =
+  void writeMicrostep(uint16_t step) {
+    uint16_t step90 =
         (step + MICROSTEPS) % (MICROSTEPS * 4); // 90 degrees offset
 
     if (method == MICRO_STEP_LEDC) {
@@ -101,7 +103,7 @@ public:
       analogWriteFrequency(pin2A, 40000);
     }
 
-    for (uint8_t i = 0; i < MICROSTEPS * 4; i++) {
+    for (uint16_t i = 0; i < MICROSTEPS * 4; i++) {
       float rad = ((i % (MICROSTEPS * 4)) * (PI * 2)) / (MICROSTEPS * 4.0f);
       float sinval = sinf(rad);
 
@@ -174,14 +176,18 @@ public:
   }
 
   void slowmicrostep(bool clockwise = true) {
-    currentStep = clockwise ? (currentStep + 1) % (4 * MICROSTEPS) : (currentStep - 1 + (4 * MICROSTEPS)) % (4 * MICROSTEPS);
+    currentStep = clockwise
+                      ? (currentStep + 1) % (4 * MICROSTEPS)
+                      : (currentStep - 1 + (4 * MICROSTEPS)) % (4 * MICROSTEPS);
 
     writeMagnetAnalog(1, sinf((currentStep * 2 * PI) / (4 * MICROSTEPS)));
     writeMagnetAnalog(2, cosf((currentStep * 2 * PI) / (4 * MICROSTEPS)));
   }
 
   void microstep(bool clockwise = true) {
-    currentStep = clockwise ? (currentStep + 1) % (4 * MICROSTEPS) : (currentStep - 1 + (4 * MICROSTEPS)) % (4 * MICROSTEPS);
+    currentStep = clockwise
+                      ? (currentStep + 1) % (4 * MICROSTEPS)
+                      : (currentStep - 1 + (4 * MICROSTEPS)) % (4 * MICROSTEPS);
 
     writeMicrostep(currentStep);
   }
