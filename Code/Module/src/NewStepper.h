@@ -1,8 +1,9 @@
 #include "Arduino.h"
+#include "ledcfast.h"
 #include "mcpwm.h"
 #include "pwm.h"
 
-#define MICROSTEPS 64
+#define MICROSTEPS 128
 #define STEPS_PER_REVOLUTION 720 // Logical steps (user-facing)
 #define MICRO_STEPS_PER_REVOLUTION                                             \
   (STEPS_PER_REVOLUTION * MICROSTEPS) // Physical microsteps
@@ -10,7 +11,7 @@
   (MICRO_STEPS_PER_REVOLUTION / 360) // Physical microsteps
 
 // limit max power to stop hard power difference near 100% duty cycle
-#define MAX_POWER 0.60f
+#define MAX_POWER 0.80f
 
 enum MagnetState : uint8_t { OFF = 0, N = 1, S = 2 };
 
@@ -74,8 +75,8 @@ private:
         (step + MICROSTEPS) % (MICROSTEPS * 4); // 90 degrees offset
 
     if (method == MICRO_STEP_LEDC) {
-      analogWrite(pin1A, sinTable[step]);
-      analogWrite(pin2A, sinTable[step90]);
+      ledcFastWrite(pin1A, sinTable[step]);
+      ledcFastWrite(pin2A, sinTable[step90]);
     } else if (method == MICRO_STEP_MCPWM) {
       mcpwmWrite(pin1A, sinTable[step]);
       mcpwmWrite(pin2A, sinTable[step90]);
@@ -98,10 +99,9 @@ public:
     pinMode(pin2A, OUTPUT);
     pinMode(pin2B, OUTPUT);
 
-    if (method == MICRO_STEP_LEDC) {
-      analogWriteFrequency(pin1A, 40000);
-      analogWriteFrequency(pin2A, 40000);
-    }
+    // LEDC coils are attached to their channels by ledcFastInit() (called from
+    // setup), which owns the channel assignment — don't lazily attach here, that
+    // would collide with the explicit ledcAttachChannel().
 
     for (uint16_t i = 0; i < MICROSTEPS * 4; i++) {
       float rad = ((i % (MICROSTEPS * 4)) * (PI * 2)) / (MICROSTEPS * 4.0f);
@@ -193,13 +193,29 @@ public:
   }
 
   void step(bool clockwise = true) {
+    if (method == MICRO_STEP_LEDC) {
+      microstep(clockwise);
+      return;
+    }
+
+    if (method == MICRO_STEP_MCPWM) {
+      microstep(clockwise);
+      return;
+    }
+
+    if (method == MICRO_STEP_SWPWM) {
+      microstep(clockwise);
+      return;
+    }
+
+    if (method == HALF_STEP) {
+      halfstep(clockwise);
+      return;
+    }
+
     if (method == FULL_STEP) {
       fullstep(clockwise);
-    } else if (method == HALF_STEP) {
-      halfstep(clockwise);
-    } else if (method == MICRO_STEP_LEDC || method == MICRO_STEP_MCPWM ||
-               method == MICRO_STEP_SWPWM) {
-      microstep(clockwise);
+      return;
     }
   }
 };

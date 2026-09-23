@@ -70,12 +70,12 @@ void setup() {
   Serial.print(" at ");
   Serial.println(VERSION_TIME);
 
-  // The PWM busy loop (core 1) and the serial loop (core 0) both run without
-  // yielding, each starving its core's idle task. The Task WDT monitors core
-  // 0's idle by default, which would panic ~5 s after the serial task starts.
-  // Stop the WDT from watching any idle task (idle_core_mask = 0). This is
-  // consistent with the firmware's design of dedicating cores to non-yielding
-  // loops; INT_WDT and esp_timer-based stepping are unaffected.
+  // The fast stepping loop (core 1) and the serial loop (core 0) both run
+  // without yielding, each starving its core's idle task. The Task WDT monitors
+  // core 0's idle by default, which would panic ~5 s after the serial task
+  // starts. Stop the WDT from watching any idle task (idle_core_mask = 0). This
+  // is consistent with the firmware's design of dedicating cores to
+  // non-yielding loops; INT_WDT and the esp_timer velocity tick are unaffected.
   esp_task_wdt_config_t wdtConfig = {
       .timeout_ms = 5000,
       .idle_core_mask = 0, // do not monitor either core's idle task
@@ -162,6 +162,13 @@ void setup() {
   mcpwmInit((uint8_t[]){M1_A1, M1_A3, M2_A1, M2_A3, M3_A1, M3_A3, M4_A1, M4_A3},
             8);
 
+  // LEDC "B" motors: attach each magnitude coil (pin1A/pin2A of the B steppers)
+  // to a known channel so the stepping loop can drop duties in with no lookup or
+  // lock — the LEDC analogue of mcpwmInit above.
+  ledcFastInit((uint8_t[]){M1_B3, M1_B1, M2_B3, M2_B1, M3_B3, M3_B1, M4_B3,
+                           M4_B1},
+               8);
+
   for (uint8_t i = 0; i < 4; i++) {
     motors[i][0]->setPosition(90);
     motors[i][1]->setPosition(90);
@@ -184,10 +191,22 @@ void setup() {
   // modules[2] = new ClockModule(2);
   // modules[3] = new ClockModule(3);
 
-  // Run the serial loop on core 0, leaving core 1 to the PWM busy loop. Stack
-  // matches the Arduino loop task (the firmware-update path needs the
+  // Launch the motion loops: the fast stepping busy loop on core 1 and the
+  // 1 kHz velocity esp_timer (core 0). Without this NOTHING moves — applyControl
+  // only sets the target; these loops are what actually step the motors.
+  MotorController::startLoops();
+
+  // Run the serial loop on core 0, leaving core 1 to the fast stepping loop.
+  // Stack matches the Arduino loop task (the firmware-update path needs the
   // headroom).
   xTaskCreatePinnedToCore(serialTask, "SerialTask", 8192, NULL, 1, NULL, 0);
+
+  // MotorControl_t init;
+  // init.direction = MotorDirection_t::MOTOR_CW;
+  // init.speed = 45;
+  // init.keepRunning = true;
+
+  // motor4BControl->applyControl(init);
 
 #else
 
@@ -253,14 +272,16 @@ void setup() {
   //   init.speed = 45;
   //   init.keepRunning = true;
 
-  //   motor1FControl->applyControl(init);
-  //   motor1BControl->applyControl(init);
+  //   motor4BControl->applyControl(init);
 
   while (true) {
-    motor4B->step();
-    delayMicroseconds((1000 / 4) * 32 / 64);
+    motor4F->step();
+    delayMicroseconds(1000000 / (45 * MICRO_STEPS_PER_DEGREE));
   }
 
+    // Launch the motion loops: the fast stepping busy loop on core 1 and the
+    // 1 kHz velocity esp_timer (core 0). Motors don't move until this runs.
+    // MotorController::startLoops();
 #endif
 }
 
@@ -269,9 +290,9 @@ uint32_t firmwareSize = 0;
 uint32_t recievedBytes = 0;
 
 // All serial RX/parse/forward and the firmware-update cascade. Runs in its own
-// task on core 0 (see setup) so it stays off core 1, which the PWM busy loop
-// owns. esp_timer-based stepping also lives on core 0 and just briefly preempts
-// this at higher priority — that's fine; serial RX is FIFO/ring-buffered.
+// task on core 0 (see setup) so it stays off core 1, which the fast stepping
+// loop owns. The 1 kHz velocity esp_timer also lives on core 0 and just briefly
+// preempts this at higher priority — that's fine; serial RX is FIFO/ring-buffered.
 void serialLoopBody() {
   if (firmwareUpdate) {
     if (serialTransfer.available()) {
@@ -434,7 +455,7 @@ void serialTask(void *) {
     serialLoopBody();
 }
 
-// The Arduino loopTask runs on core 1, which the PWM busy loop owns. Keep it
-// dormant so it never steals cycles from PWM; all real work runs in serialTask
-// (core 0) and the esp_timer stepping callbacks.
+// The Arduino loopTask runs on core 1, which the fast stepping loop owns. Keep
+// it dormant so it never steals cycles from stepping; all real work runs in the
+// fast loop (core 1), serialTask (core 0), and the velocity esp_timer (core 0).
 void loop() { vTaskDelay(portMAX_DELAY); }

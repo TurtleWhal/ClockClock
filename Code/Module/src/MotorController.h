@@ -3,14 +3,80 @@
 
 #include "../../Master/src/motorcontrol.h"
 
+// Two-loop motion architecture:
+//
+//   * FAST loop  (core 1) — a dedicated busy task, MotorController::fastLoopTask.
+//     Every iteration it reads the clock once and walks all motors, calling
+//     stepTick(now): an absolute-deadline scheduler that emits ONE microstep
+//     each time wall-clock passes the motor's next-step deadline. Uniform step
+//     spacing (low jitter), and — at most one step per pass — no back-to-back
+//     bursts for the motor to skip on when a pass runs late. This is the only
+//     place `position` is written and the only place motor->step() is called. It
+//     spins as fast as it can, so the achievable step rate is bounded by step()'s
+//     own cost, not by a per-step timer re-arm.
+//
+//   * SLOW loop  (core 0) — a single periodic esp_timer at ~1 kHz,
+//     MotorController::velocityTimerCb. It runs the accel/decel/cruise profile
+//     for every motor and publishes each one's signed step velocity (stepVel,
+//     microsteps/s) for the fast loop to consume. Velocity changes slowly
+//     (accel is deg/s²), so 1 kHz is plenty and it replaces the old per-motor
+//     one-shot step timers with one shared tick.
+//
+// Cross-loop handoff is two single-word floats: the slow loop writes `stepVel`
+// and reads `position`; the fast loop writes `position` and reads `stepVel`. A
+// 32-bit aligned load/store is atomic on the S3, so those need no lock — a
+// read that is one tick stale is harmless. The command/profile fields that
+// applyControl() (serial task) and the velocity tick (esp_timer task) share are
+// guarded by a per-motor spinlock so a multi-field update can't be read torn.
+
+// Maximum microstep rate the motors can physically follow — about a 50 µs step
+// interval (20 kHz). Beyond this the rotor can't keep up and skips. The fast loop
+// now delivers uniform, burst-free steps (see stepTick), so this is a genuine
+// pull-out limit rather than the bursting artifact that made lower rates skip
+// before. The clamp guards against commands (or time-profiles) that would demand
+// a shorter interval. It is a STEP rate (microsteps/s), so finer microstepping
+// automatically yields a proportionally lower top speed (deg/s). TUNE if your
+// motors differ: raise until stepping starts to skip, then back off.
+#define MAX_STEP_RATE_HZ 40000
+
+// Per-motor phase stagger. When several motors resume from rest together (a whole
+// display update), identical periods would make their step deadlines land in the
+// same fast-loop pass, so their step() calls serialize and jitter each other.
+// Offsetting each motor's deadline by (its index * this) spreads them across the
+// pass so at most one steps at a time. A few µs — on the order of one step() — is
+// enough; the 8 motors then span index*this across the period.
+#define STEP_STAGGER_US 5
+
+// Once a move gets within this many microsteps of its target, stop enforcing the
+// commanded direction and home on the shortest path. A forced CW/CCW distance is
+// always measured the long way round [0, REV), so without this a small overshoot
+// past the setpoint reads as "go almost a full revolution again" and the motor
+// spins around. 10° is far larger than any realistic overshoot yet well short of
+// half a turn, so it never overrides the forced direction mid-travel.
+#define HOMING_MARGIN (10 * MICRO_STEPS_PER_DEGREE)
+
 class MotorController {
 private:
   NewStepper *motor;
 
-  MotorControl_t &control = *(new MotorControl_t()); // default control settings
+  MotorControl_t control; // active command (defaults from MotorControl_t)
 
-  float position = 0.0f; // current position in microsteps (CW = increasing)
-  float speed = 0.0f;    // signed velocity, degrees/second (+ = CW)
+  // ---- shared between the fast (core 1) and slow (core 0) loops ----
+  // position: current position in microsteps, [0, REV). CW = increasing.
+  //   Written ONLY by the fast loop; read by the slow loop and getCurrentPosition.
+  // stepVel:  signed step velocity in microsteps/second (+ = CW).
+  //   Written ONLY by the slow loop; read by the fast loop.
+  volatile float position = 0.0f;
+  volatile float stepVel = 0.0f;
+
+  // ---- fast-loop private state (core 1 only) ----
+  int64_t nextStepAt = 0;   // absolute µs deadline for this motor's next step
+  float cachedVel = 0.0f;   // the stepVel the cached period was derived from
+  int64_t cachedPeriod = 0; // µs between steps at cachedVel
+  uint8_t motorIndex = 0;   // registration order; drives the per-motor stagger
+
+  // ---- slow-loop private state (core 0 only) ----
+  float speed = 0.0f; // signed velocity, degrees/second (+ = CW)
 
   // Effective profile parameters for the active move. Normally copied straight
   // from the command, but overridden when a target time is requested (see
@@ -19,26 +85,27 @@ private:
   float cruiseSpeed = 150.0f;    // deg/s
   float decelK = 0.0f;           // MICRO_STEPS_PER_DEGREE/(2*accel); precomputed per move
   float targetMicrosteps = 0.0f; // move target, normalized to [0, REV)
+  bool active = false;           // false until the first applyControl()
+  bool homing = false;           // latched near target: home shortest, not forced
 
-  // Step-timing state. lastStepTime drives measured-dt velocity integration;
-  // nextStepTime is the absolute deadline the scheduler aims each step at, so
-  // callback run time and dispatch latency can't accumulate into drift.
-  int64_t lastStepTime = 0; // µs (esp_timer_get_time)
-  int64_t nextStepTime = 0; // µs (esp_timer_get_time)
+  // Guards the command/profile fields (control, targetMicrosteps, accel,
+  // cruiseSpeed, decelK) shared between applyControl() on the serial task and
+  // updateVelocity() on the velocity-timer task — both on core 0.
+  portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
   // Signed distance (microsteps) from the current position to `target`,
-  // honoring control.direction and 360° wrap-around. Positive => clockwise
-  // (step(true), position++). Both `position` and `target` must already be
-  // normalized to [0, REV) — the callers keep them that way, so this stays
-  // fmodf-free for the hot path.
-  float signedDistance(float target) {
+  // honoring `direction` and 360° wrap-around. Positive => clockwise
+  // (step(true), position++). `target` must already be normalized to [0, REV);
+  // `position` is read once (it is normalized by the fast loop).
+  float signedDistance(float target, MotorDirection_t direction) {
     const float REV = (float)MICRO_STEPS_PER_REVOLUTION;
-    float forward = target - position; // clockwise travel, in (-REV, REV)
+    float pos = position;              // single atomic read of fast-loop state
+    float forward = target - pos;      // clockwise travel, in (-REV, REV)
     if (forward < 0.0f)
       forward += REV; // -> [0, REV)
     float backward = (forward == 0.0f) ? 0.0f : REV - forward; // ccw travel
 
-    switch (control.direction) {
+    switch (direction) {
     case MotorDirection_t::MOTOR_CW:
       return forward; // force clockwise, even if it's the long way around
     case MotorDirection_t::MOTOR_CCW:
@@ -48,63 +115,160 @@ private:
     }
   }
 
-  // Arm the timer for the next step on an ABSOLUTE timeline. The deadline is
-  // referenced to when the step *should* fire (nextStepTime += period), not to
-  // "now", so this callback's own run time and the esp_timer dispatch latency
-  // don't accumulate into the step period. Every motor therefore holds the
-  // profile's commanded average rate: no speed drift, and equal-time moves stay
-  // in lockstep. The period is capped so a near-zero speed can't stall or divide
-  // by zero; speed itself is never clamped (velocity stays continuous).
-  inline void scheduleNext(float absSpeed) {
-    constexpr float kUsecPerStepAt1Dps =
-        1000000.0f * 360.0f / MICRO_STEPS_PER_REVOLUTION; // 15625 µs
-    constexpr uint32_t kMaxPeriod = 20000;                // µs (~0.78 deg/s floor)
-    uint32_t period = (absSpeed > 1.0f)
-                          ? (uint32_t)(kUsecPerStepAt1Dps / absSpeed)
-                          : kMaxPeriod;
-
-    nextStepTime += period;
-    int64_t now = esp_timer_get_time();
-    int64_t wait = nextStepTime - now;
-    if (wait < 1) { // fell behind (saturated/preempted) — fire ASAP and resync
-      wait = 1;
-      nextStepTime = now;
-    }
-    esp_timer_start_once(timer, (uint64_t)wait);
+  // Clamp the profile speed to the motor's followable step rate, then publish it
+  // for the fast loop. Clamping `speed` itself (not just the output) keeps the
+  // brake-distance math consistent and prevents velocity winding up above the
+  // cap (which would desync `speed` from the motor's actual motion).
+  inline void publishStepVel() {
+    constexpr float maxSpeed =
+        (float)MAX_STEP_RATE_HZ / (float)MICRO_STEPS_PER_DEGREE; // deg/s
+    if (speed > maxSpeed)
+      speed = maxSpeed;
+    else if (speed < -maxSpeed)
+      speed = -maxSpeed;
+    stepVel = speed * (float)MICRO_STEPS_PER_DEGREE;
   }
 
-  // The actual task — a normal member function with full access to private
-  // members (motor, etc.) via the implicit `this`. `speed` is a *signed*
-  // velocity (+ = CW): the step direction follows its sign, so an interrupting
-  // command never causes a discontinuous reversal — a target behind the motor
-  // is reached by braking through zero.
-  void controlTask() {
-    const float REV = (float)MICRO_STEPS_PER_REVOLUTION;
+  // ---- registry + loop plumbing (a module drives 4 clocks = 8 motors) ----
+  inline static MotorController *registry[8] = {};
+  inline static uint8_t registryCount = 0;
 
-    // Measured elapsed time since the previous step. Integrating velocity
-    // against the *real* interval (not the intended one) keeps the speed profile
-    // locked to wall-clock even when a tick is dispatched late.
+  // Fast stepping loop. Pinned alone on core 1 (free now that the SW-PWM busy
+  // loop is gone). Reads the clock once per pass and lets each motor step if its
+  // deadline has arrived, so every motor is timed against the same `now`.
+  static void fastLoopTask(void *) {
+    for (;;) {
+      int64_t now = esp_timer_get_time();
+      for (uint8_t i = 0; i < registryCount; i++)
+        registry[i]->stepTick(now);
+    }
+  }
+
+  // Slow control loop: recompute every motor's velocity profile and publish its
+  // step velocity. Runs on the esp_timer service task (core 0). Measured dt so
+  // periodic-timer jitter can't bias the accel integration.
+  static void velocityTimerCb(void *) {
+    static int64_t last = 0;
     int64_t now = esp_timer_get_time();
-    float dt = (now - lastStepTime) * 0.000001f;
-    if (dt > 0.05f)
-      dt = 0.05f; // clamp so a long preemption stall can't jolt the speed
-    lastStepTime = now;
+    float dt = (last == 0) ? 0.001f : (now - last) * 0.000001f;
+    last = now;
+    for (uint8_t i = 0; i < registryCount; i++)
+      registry[i]->updateVelocity(dt);
+  }
 
-    // Cheap wrap: position moves <= 1 microstep per tick, so one compare-subtract
-    // keeps it in [0, REV) — no fmodf in the hot path.
-    if (position >= REV)
-      position -= REV;
-    else if (position < 0.0f)
-      position += REV;
+public:
+  MotorController(NewStepper *motor) : motor(motor) {
+    // Constructed at global/static-init time (before FreeRTOS/esp_timer are
+    // up), so just record ourselves; the loops are launched later by
+    // startLoops() from setup(). Bounded so the MOTOR_TEST build's extra
+    // instances can't overflow the array.
+    if (registryCount < 8) {
+      motorIndex = registryCount;
+      registry[registryCount++] = this;
+    }
+  }
 
-    float accelStep = accel * dt; // velocity change available this tick
+  // Launch both motion loops. Call once from setup(), after the motors are
+  // configured. Safe only after FreeRTOS and esp_timer are running.
+  static void startLoops() {
+    // Fast loop on core 1. Priority 1 == the setup/loop task so this can't
+    // preempt setup() before it finishes; core 1 is dedicated at runtime once
+    // loop() parks on vTaskDelay. This loop never yields (like the old PWM
+    // loop), so the Task WDT must not watch core 1's idle task — setup()
+    // already reconfigures it with idle_core_mask = 0.
+    xTaskCreatePinnedToCore(fastLoopTask, "MotorFast", 4096, NULL, 1, NULL, 1);
 
-    // Continuous-spin mode: ramp toward control.speed in the commanded direction
-    // and keep going. A later position command inherits `speed` and decelerates.
-    if (control.keepRunning) {
-      float targetVel = (control.direction == MotorDirection_t::MOTOR_CCW)
-                            ? -(float)control.speed
-                            : (float)control.speed;
+    // Slow loop: one periodic esp_timer (dispatched on core 0) driving all
+    // motors' velocity profiles at 1 kHz.
+    static esp_timer_handle_t velTimer = nullptr;
+    const esp_timer_create_args_t args = {
+        .callback = velocityTimerCb, .arg = nullptr, .name = "MotorVel"};
+    esp_timer_create(&args, &velTimer);
+    esp_timer_start_periodic(velTimer, 1000); // µs -> 1 ms tick
+  }
+
+  // FAST loop step (core 1). Absolute-deadline scheduler: emit one microstep when
+  // wall-clock passes this motor's next-step deadline, then push the deadline out
+  // by one period. `stepVel`'s sign is the direction, so a reversing command just
+  // flips it — no discontinuity. At most one step per call: a pass that runs late
+  // can't fire a back-to-back burst; if it fell a whole period behind it resyncs
+  // (drops the backlog) and the slow loop's position control makes it up. Owns
+  // `position`.
+  void stepTick(int64_t now) {
+    float v = stepVel; // microsteps/s, signed (atomic read of slow-loop state)
+    if (v == 0.0f) {
+      nextStepAt = 0; // idle: re-seed the deadline when motion resumes
+      return;
+    }
+
+    // Recompute the period only when the commanded velocity actually changes
+    // (the slow loop updates it at most every 1 ms), so cruising stays
+    // divide-free in the hot path.
+    if (v != cachedVel) {
+      cachedVel = v;
+      cachedPeriod = (int64_t)(1000000.0f / fabsf(v));
+      if (cachedPeriod < 1)
+        cachedPeriod = 1;
+    }
+
+    // Stagger this motor's deadline vs the others so their steps don't pile into
+    // the same fast-loop pass (applied on resume and on a fell-behind resync).
+    int64_t stagger = (int64_t)motorIndex * STEP_STAGGER_US;
+
+    if (nextStepAt == 0)
+      nextStepAt = now + cachedPeriod + stagger; // first step, phase-offset
+
+    if (now < nextStepAt)
+      return; // not due yet
+
+    const float REV = (float)MICRO_STEPS_PER_REVOLUTION;
+    float pos = position;
+    if (v > 0.0f) {
+      motor->step(true);
+      pos += 1.0f;
+      if (pos >= REV)
+        pos -= REV;
+    } else {
+      motor->step(false);
+      pos -= 1.0f;
+      if (pos < 0.0f)
+        pos += REV;
+    }
+    position = pos;
+
+    nextStepAt += cachedPeriod;
+    if (nextStepAt <= now) // fell a full period behind: resync, don't burst
+      nextStepAt = now + cachedPeriod + stagger;
+  }
+
+  // SLOW loop update (core 0). Integrate the accel/decel/cruise profile against
+  // measured `dt` and publish the resulting signed step velocity for the fast
+  // loop. This is the old controlTask logic minus the stepping itself.
+  void updateVelocity(float dt) {
+    if (!active)
+      return;
+
+    // Snapshot the command/profile under the lock so an applyControl() on the
+    // serial task can't be read half-updated.
+    MotorControl_t c;
+    float target, a, cruise, dk;
+    taskENTER_CRITICAL(&mux);
+    c = control;
+    target = targetMicrosteps;
+    a = accel;
+    cruise = cruiseSpeed;
+    dk = decelK;
+    taskEXIT_CRITICAL(&mux);
+
+    float accelStep = a * dt; // velocity change available this tick
+
+    // Continuous-spin mode: ramp toward control.speed in the commanded
+    // direction and keep going. A later position command inherits `speed` and
+    // decelerates.
+    if (c.keepRunning) {
+      float targetVel = (c.direction == MotorDirection_t::MOTOR_CCW)
+                            ? -(float)c.speed
+                            : (float)c.speed;
       if (speed < targetVel) {
         speed += accelStep;
         if (speed > targetVel)
@@ -114,117 +278,88 @@ private:
         if (speed < targetVel)
           speed = targetVel;
       }
-
-      bool cw = (speed != 0.0f) ? (speed > 0.0f) : (targetVel > 0.0f);
-      if (cw) {
-        motor->step(true);
-        position += 1.0f;
-      } else {
-        motor->step(false);
-        position -= 1.0f;
-      }
-      scheduleNext(fabsf(speed));
+      publishStepVel();
       return;
     }
 
-    float diff = signedDistance(targetMicrosteps); // signed microsteps to target
+    // The forced direction governs the bulk of the travel, but arrival must be
+    // by the shortest path: a forced distance is always measured [0, REV), so a
+    // small overshoot past the setpoint would otherwise read as ~a full turn and
+    // send the motor around again. Once we come within HOMING_MARGIN of the
+    // target, latch into shortest-path homing so an overshoot corrects by a hair.
+    float sd = signedDistance(target, c.direction);
+    if (fabsf(sd) <= (float)HOMING_MARGIN)
+      homing = true;
+    float diff = homing
+                     ? signedDistance(target, MotorDirection_t::MOTOR_SHORTEST)
+                     : sd; // signed microsteps to target
     float absdiff = fabsf(diff);
 
-    // Arrived: snap exactly and hold (leave the timer stopped). The profile
-    // decelerates to ~0 here, so zeroing the speed isn't a discontinuity.
+    // Arrived: hold. The fast loop leaves position within <1 microstep (<0.008°)
+    // of target, which is invisible, so no exact snap is needed.
     if (absdiff < 1.0f) {
-      position = targetMicrosteps;
       speed = 0.0f;
+      stepVel = 0.0f;
       return;
     }
 
-    float decelDist = speed * speed * decelK; // v^2/(2a), in microsteps
+    float decelDist = speed * speed * dk; // v^2/(2a), in microsteps
 
     if (speed * diff < 0.0f || decelDist >= absdiff)
       speed -= copysignf(accelStep, speed); // brake toward zero / land on target
-    else if (fabsf(speed) < cruiseSpeed)
+    else if (fabsf(speed) < cruise)
       speed += copysignf(accelStep, diff); // accelerate toward the cruise cap
-    else if (fabsf(speed) > cruiseSpeed)
+    else if (fabsf(speed) > cruise)
       speed -= copysignf(accelStep, speed); // ease down to the cap
 
-    // Step in the travel direction (toward the target when momentarily at rest).
-    bool cw = (speed != 0.0f) ? (speed > 0.0f) : (diff > 0.0f);
-    if (cw) {
-      motor->step(true);
-      position += 1.0f;
-    } else {
-      motor->step(false);
-      position -= 1.0f;
-    }
-    scheduleNext(fabsf(speed));
+    publishStepVel();
   }
 
-  // Timer that drives the task. The callback recovers `this` and jumps into
-  // the real (non-static) member function above, matching StepperMotor.h.
-  const esp_timer_create_args_t timer_args = {
-      .callback =
-          [](void *arg) { static_cast<MotorController *>(arg)->controlTask(); },
-      .arg = (void *)this, // arbitrary argument to pass to callback
-      .name = "MotorControl"};
+  void applyControl(const MotorControl_t &cmd) {
+    // Resolve everything into locals first (especially the sqrtf-heavy time
+    // profile), then publish the whole set under the lock so the velocity tick
+    // never sees a torn update.
+    MotorControl_t c = cmd;
 
-  esp_timer_handle_t timer = nullptr;
-
-public:
-  MotorController(NewStepper *motor) : motor(motor) {
-    // The esp_timer is created lazily on the first applyControl(), NOT here.
-    // These controllers are constructed at global/static-init time — before the
-    // esp_timer service is running — so esp_timer_create() would fail and leave
-    // `timer` invalid, which then crashed esp_timer_start_once() (a
-    // LoadProhibited on the garbage handle). By the first applyControl(),
-    // setup() has run and creation is safe.
-  }
-
-  void applyControl(const MotorControl_t &control) {
-    if (timer == nullptr)
-      esp_timer_create(&timer_args, &timer);
-
-    // Capture the outgoing mode before `control` is overwritten.
-    bool wasSpinning = this->control.keepRunning;
-
-    this->control = control;
+    bool wasSpinning = control.keepRunning; // last published mode (we own writes)
+    float v0speed = speed;                  // current velocity (atomic read)
 
     // Leaving constant-velocity (keepRunning) mode with a SHORTEST move: don't
     // let the motor turn around. Resolve SHORTEST to keep spinning the way it's
     // already going, so it decelerates to the target in that direction (even if
     // that's the long way around the dial).
-    if (wasSpinning && !control.keepRunning && speed != 0.0f &&
-        control.direction == MotorDirection_t::MOTOR_SHORTEST) {
-      this->control.direction = (speed > 0.0f) ? MotorDirection_t::MOTOR_CW
-                                               : MotorDirection_t::MOTOR_CCW;
+    if (wasSpinning && !c.keepRunning && v0speed != 0.0f &&
+        c.direction == MotorDirection_t::MOTOR_SHORTEST) {
+      c.direction = (v0speed > 0.0f) ? MotorDirection_t::MOTOR_CW
+                                     : MotorDirection_t::MOTOR_CCW;
     }
 
-    // Precompute the move target once, normalized to [0, REV), so the hot loop
+    // Precompute the move target once, normalized to [0, REV), so the loops
     // and signedDistance() stay fmodf-free.
     const float REV = (float)MICRO_STEPS_PER_REVOLUTION;
-    targetMicrosteps =
-        fmodf((float)(control.position * MICRO_STEPS_PER_DEGREE), REV);
-    if (targetMicrosteps < 0.0f)
-      targetMicrosteps += REV;
+    float target = fmodf((float)(c.position * MICRO_STEPS_PER_DEGREE), REV);
+    if (target < 0.0f)
+      target += REV;
 
     // Default: drive the profile straight off the commanded accel/speed. The
     // current velocity is deliberately NOT reset, so an interrupting command
     // continues from the speed the motor already has (no discontinuity).
-    accel = control.acceleration;
-    cruiseSpeed = control.speed;
+    float a = c.acceleration;
+    float cruise = c.speed;
 
     // If a target time is requested, derive an accelerate-then-decelerate
     // profile that starts at the *current* velocity, ends at rest on the
     // target, and takes exactly `time` ms — so a moving motor blends into the
     // new move and still stops on time, without stopping first.
-    if (!control.keepRunning && control.time != UINT16_MAX && control.time > 0) {
-      float sd = signedDistance(targetMicrosteps);         // signed microsteps
+    if (!c.keepRunning && c.time != UINT16_MAX && c.time > 0) {
+      float sd = signedDistance(target, c.direction);      // signed microsteps
       float D = fabsf(sd) / (float)MICRO_STEPS_PER_DEGREE;  // distance, degrees
-      float T = control.time * 0.001f;                      // time, seconds
+      float T = c.time * 0.001f;                            // time, seconds
 
       if (D > 0.0f) {
         // Current velocity projected onto the move direction: + = already
         // heading toward the target, - = heading away from it.
-        float v0 = (sd >= 0.0f) ? speed : -speed;
+        float v0 = (sd >= 0.0f) ? v0speed : -v0speed;
 
         // Peak speed vp of a profile that ramps v0 -> vp (at +a) then vp -> 0
         // (at -a), covering D in time T. From t1 + t2 = T and signed area = D:
@@ -238,25 +373,33 @@ public:
 
         if (vp >= v0) {
           // Normal case: accelerate up to vp, then brake to land on time.
-          accel = (2.0f * vp - v0) / T;
-          cruiseSpeed = vp;
+          a = (2.0f * vp - v0) / T;
+          cruise = vp;
         } else {
           // Already faster than the profile's peak (v0 > vp): hitting the time
           // would require overshooting, so just brake smoothly onto the target.
-          accel = (v0 * v0) / (2.0f * D);
-          cruiseSpeed = v0; // v0 > 0 in this branch
+          a = (v0 * v0) / (2.0f * D);
+          cruise = v0; // v0 > 0 in this branch
         }
       }
     }
 
-    // Per-move deceleration constant, so the hot loop's brake test is a
+    // Per-move deceleration constant, so the velocity tick's brake test is a
     // multiply instead of a divide: decelDist = speed^2 * decelK.
-    decelK = (accel > 0.0f) ? (MICRO_STEPS_PER_DEGREE / (2.0f * accel)) : 0.0f;
+    float dk = (a > 0.0f) ? (MICRO_STEPS_PER_DEGREE / (2.0f * a)) : 0.0f;
 
-    // Seed the step-timing baseline to "now" so the first step fires promptly
-    // and measured-dt starts clean.
-    lastStepTime = nextStepTime = esp_timer_get_time();
-    esp_timer_start_once(timer, 0); // start immediately
+    // Publish atomically for the velocity tick. stepVel is intentionally left
+    // for the next tick to recompute — the fast loop keeps stepping at the old
+    // (continuous) velocity for <=1 ms, no glitch.
+    taskENTER_CRITICAL(&mux);
+    control = c;
+    targetMicrosteps = target;
+    accel = a;
+    cruiseSpeed = cruise;
+    decelK = dk;
+    active = true;
+    homing = false; // re-enforce the commanded direction for the new move
+    taskEXIT_CRITICAL(&mux);
   }
 
   // set speed in degrees per second
@@ -273,11 +416,12 @@ public:
 
   // Tell the controller where the hand physically is, in degrees. Used by
   // calibration to seed the position reference without moving the motor — call
-  // it while the motor is idle so it doesn't race the stepping timer.
+  // it while the motor is idle (stepVel == 0) so it doesn't race the fast loop.
   void setPosition(float degrees) {
     const float REV = (float)MICRO_STEPS_PER_REVOLUTION;
-    position = fmodf(degrees * MICRO_STEPS_PER_DEGREE, REV);
-    if (position < 0.0f)
-      position += REV;
+    float pos = fmodf(degrees * MICRO_STEPS_PER_DEGREE, REV);
+    if (pos < 0.0f)
+      pos += REV;
+    position = pos;
   }
 };

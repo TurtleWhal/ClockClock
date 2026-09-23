@@ -504,8 +504,8 @@ void loop()
           {
             for (int j = 0; j < HEIGHT; j++)
             {
-              buffer[i][j][0].speed = 39;
-              buffer[i][j][1].speed = 39;
+              buffer[i][j][0].speed = 360 * 4 / 32;
+              buffer[i][j][1].speed = 360 * 4 / 32;
               buffer[i][j][0].keepRunning = true;
               buffer[i][j][1].keepRunning = true;
               buffer[i][j][0].direction = MotorDirection_t::MOTOR_CW;
